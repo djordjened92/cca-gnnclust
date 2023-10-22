@@ -157,7 +157,7 @@ def main(args, device):
         model.eval()
         for sample in val_ds:
             labels = sample['labels']
-            predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device)
+            predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
 
             rand_index.append(metrics.ari(labels, predictions))
             ami.append(metrics.ami(labels, predictions))

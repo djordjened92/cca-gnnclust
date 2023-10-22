@@ -17,7 +17,7 @@ from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
 torch.manual_seed(123)
 
-def inference(features, labels, xws, yws, cam_ids, model, device):
+def inference(features, labels, xws, yws, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
@@ -147,7 +147,7 @@ def main(args, device):
 
     for sample in test_ds:
         labels = sample['labels']
-        predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device)
+        predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
 
         rand_index.append(metrics.ari(labels, predictions))
         ami.append(metrics.ami(labels, predictions))
