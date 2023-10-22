@@ -37,9 +37,6 @@ def prepare_dataset_graphs_mp(data_paths, k, levels, device, faiss_gpu, num_work
     for data_path in data_paths:
         with open(data_path, "rb") as f:
             pickle_data = pickle.load(f)
-            # import random
-            # random.seed(123)
-            # pickle_data = random.sample(pickle.load(f), 500)
             data.extend(pickle_data)
 
     g_labels = []
@@ -50,7 +47,6 @@ def prepare_dataset_graphs_mp(data_paths, k, levels, device, faiss_gpu, num_work
     process_inputs = []
     for scene in data:
         # Embed world position into embeddings
-        
         node_len = scene['node_embeds'].shape[-1]
         coo_extend = node_len // 2
         xws = np.repeat(scene['xws'][:, None] / 360., coo_extend, axis=-1)

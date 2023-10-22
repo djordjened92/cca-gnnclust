@@ -64,7 +64,7 @@ def main(args, device):
     )
     model = model.to(device)
     model.train()
-    best_vmes = 0
+    best_vmes = -np.Inf
 
     #################
     # Hyperparameters
@@ -174,8 +174,10 @@ def main(args, device):
         # Save ckpt
         if m_vmes > best_vmes:
             best_vmes = m_vmes
-            print("New best epoch", epoch)
-            os.remove(glob.glob(os.path.join(model_dir, 'model_best-*.pth'))[0])
+            print("\nNew best epoch", epoch)
+            best_model = glob.glob(os.path.join(model_dir, 'model_best-*.pth'))
+            if len(best_model):
+                os.remove(best_model[0])
             torch.save(model.state_dict(), os.path.join(model_dir, f'model_best-{epoch}.pth'))
 
         print(f'Rand index mean = {m_ridx}')
