@@ -1,1 +1,1 @@
-# cca-gnnclust
+Cross Camera Data Association using Supervised Clustering GNN
