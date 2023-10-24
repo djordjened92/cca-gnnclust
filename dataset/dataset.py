@@ -4,6 +4,7 @@ import numpy as np
 import multiprocessing as mp
 import torch
 from torch.utils.data import Dataset
+from dgl import transforms as T
 from utils import (
     build_knns,
     build_next_level,
@@ -29,15 +30,13 @@ def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
         k=k,
         levels=levels,
         faiss_gpu=faiss_gpu,
+        augment=True
     )
     return [g.to(device) for g in dataset.gs]
 
-def prepare_dataset_graphs_mp(data_paths, k, levels, device, faiss_gpu, num_workers):
-    data = []
-    for data_path in data_paths:
-        with open(data_path, "rb") as f:
-            pickle_data = pickle.load(f)
-            data.extend(pickle_data)
+def prepare_dataset_graphs_mp(data_path, k, levels, device, faiss_gpu, num_workers):
+    with open(data_path, "rb") as f:
+        data = pickle.load(f)
 
     g_labels = []
     g_features = []
@@ -93,14 +92,20 @@ class LanderDataset(object):
         k=10,
         levels=1,
         faiss_gpu=False,
+        augment=False
     ):
         self.k = k
+        self.augment = augment
         self.gs = []
         self.nbrs = []
         self.sims = []
         self.levels = levels
         global_xws = xws.copy()
         global_yws = yws.copy()
+
+        # Augment graph transformations
+        self.transforms = T.Compose([T.DropNode(p=0.05),
+                                     T.DropEdge(p=0.05)])
 
         # Initialize features and labels
         features = l2norm(features.astype("float32"))
@@ -134,6 +139,13 @@ class LanderDataset(object):
             g = self._build_graph(
                 features, cluster_features, labels, xws, yws, cam_ids, density, knns
             )
+
+            # Apply graph augmentation during training
+            if self.augment:
+                g = self.transforms(g)
+                if g.num_nodes() == 0:
+                    break
+
             self.gs.append(g)
 
             if lvl >= self.levels - 1:

@@ -20,9 +20,17 @@ from test_mv_da import inference
 torch.manual_seed(123)
 
 def main(args, device):
-    whole_ds = prepare_dataset_graphs_mp(args.data_paths, args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
-    train_ds, val_ds = torch.utils.data.random_split(whole_ds, [0.8, 0.2])
-    
+    train_ds = []
+    val_ds = []
+    for data_path in args.data_paths:
+        ds = prepare_dataset_graphs_mp(data_path, args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
+        split_idx = int(0.85 * len(ds))
+        train_ds.append(torch.utils.data.Subset(ds, range(split_idx)))
+        val_ds.append(torch.utils.data.Subset(ds, range(split_idx, len(ds))))
+
+    train_ds = torch.utils.data.ConcatDataset(train_ds)
+    val_ds = torch.utils.data.ConcatDataset(val_ds)
+
     def collate(batch):
         graphs = []
         for sample in batch:
