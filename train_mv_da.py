@@ -3,6 +3,7 @@ import os
 import glob
 import yaml
 import pickle
+import multiprocessing as mp
 from functools import partial
 
 import numpy as np
@@ -13,7 +14,7 @@ from torchvision.transforms import (
     ColorJitter, RandomHorizontalFlip
 )
 from torch.utils.tensorboard import SummaryWriter
-from dataset import GraphDataset
+from dataset import SceneDataset, GraphDataset, prepare_dataset_graphs_mp
 from models import LANDER, load_feature_extractor
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
@@ -68,59 +69,50 @@ def main(args, device, collate_fun):
         train_seq = ds[:split_idx]
         val_seq = ds[split_idx:]
 
-        train_ds.append(GraphDataset(train_seq,
+        train_ds.append(SceneDataset(train_seq,
                                      feature_dim,
                                      feature_model,
-                                     args.knn_k,
-                                     args.levels,
-                                     args.faiss_gpu,
                                      device,
                                      train_transform))
-        val_ds.append(GraphDataset(val_seq,
+        val_ds.append(SceneDataset(val_seq,
                                    feature_dim,
                                    feature_model,
-                                   args.knn_k,
-                                   args.levels,
-                                   args.faiss_gpu,
                                    device,
                                    val_transform))
 
     train_ds = torch.utils.data.ConcatDataset(train_ds)
     val_ds = torch.utils.data.ConcatDataset(val_ds)
 
-    # Define dataloader
-    train_dl = torch.utils.data.DataLoader(
-        dataset=train_ds,
-        batch_size=args.batch_size,
-        collate_fn=collate_fun,
-        shuffle=True,
-        drop_last=False
-    )
     train_len = len(train_ds) * args.batch_size
-
-    val_dl = torch.utils.data.DataLoader(
-        dataset=val_ds,
-        batch_size=args.batch_size,
-        collate_fn=collate_fun,
-        shuffle=False,
-        drop_last=False
-    )
     val_len = len(val_ds) * args.batch_size
+
+    # Final validation ds can be created once
+    scene_seq = [sample for sample in val_ds]
+    gss = prepare_dataset_graphs_mp(sequence=scene_seq,
+                                    k=args.knn_k,
+                                    levels=args.levels,
+                                    faiss_gpu=args.faiss_gpu,
+                                    device=device,
+                                    num_workers=config['DATALOADER']['NUM_WORKERS'])
+    val_gs_ds = GraphDataset(scene_seq, gss)
+    val_gs_dl = torch.utils.data.DataLoader(dataset=val_gs_ds,
+                                            batch_size=args.batch_size,
+                                            shuffle=False,
+                                            collate_fn=collate_fun,
+                                            drop_last=False)
 
     ##################
     # Model Definition
-    node_feature_dim = train_ds[0]['graphs'][0].ndata["features"].shape[1]
-    model = LANDER(
-        feature_dim=node_feature_dim,
-        nhid=args.hidden,
-        num_conv=args.num_conv,
-        dropout=args.dropout,
-        use_GAT=args.gat,
-        K=args.gat_k,
-        balance=args.balance,
-        use_cluster_feat=args.use_cluster_feat,
-        use_focal_loss=args.use_focal_loss,
-    )
+    node_feature_dim = 2 * feature_dim
+    model = LANDER(feature_dim=node_feature_dim,
+                   nhid=args.hidden,
+                   num_conv=args.num_conv,
+                   dropout=args.dropout,
+                   use_GAT=args.gat,
+                   K=args.gat_k,
+                   balance=args.balance,
+                   use_cluster_feat=args.use_cluster_feat,
+                   use_focal_loss=args.use_focal_loss)
     model = model.to(device)
     model.train()
     best_vmes = -np.Inf
@@ -155,7 +147,22 @@ def main(args, device, collate_fun):
         all_loss_den = 0
         all_loss_conn = 0
         model.train()
-        for batch in train_dl:
+
+        scene_seq = [sample for sample in train_ds]
+        gss = prepare_dataset_graphs_mp(sequence=scene_seq,
+                                        k=args.knn_k,
+                                        levels=args.levels,
+                                        faiss_gpu=args.faiss_gpu,
+                                        device=device,
+                                        num_workers=config['DATALOADER']['NUM_WORKERS'])
+        train_gs_ds = GraphDataset(scene_seq, gss)
+        train_gs_dl = torch.utils.data.DataLoader(dataset=train_gs_ds,
+                                                  batch_size=args.batch_size,
+                                                  shuffle=True,
+                                                  collate_fn=collate_fun,
+                                                  drop_last=False)
+
+        for batch in train_gs_dl:
             loss = 0
             opt.zero_grad()
             for g in batch:
@@ -191,7 +198,7 @@ def main(args, device, collate_fun):
         completeness = []
         v_measure = []
         with torch.no_grad():
-            for val_batch in val_dl:
+            for val_batch in val_gs_dl:
                 for g in val_batch:
                     processed_g = model(g)
                     _, loss_den_val, loss_conn_val = model.compute_loss(processed_g)
@@ -215,8 +222,8 @@ def main(args, device, collate_fun):
         # Validation metrics
         model.eval()
         for sample in val_ds:
-            labels = sample['labels']
-            predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+            labels = sample['node_labels']
+            predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
 
             rand_index.append(metrics.ari(labels, predictions))
             ami.append(metrics.ami(labels, predictions))
@@ -253,6 +260,7 @@ def main(args, device, collate_fun):
         tb_writer.add_scalar('Val_Metrics/V_Measure', m_vmes, epoch)
 
 if __name__== '__main__':
+    mp.set_start_method('spawn')
     ###########
     # ArgParser
     parser = argparse.ArgumentParser()
