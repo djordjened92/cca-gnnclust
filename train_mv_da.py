@@ -3,9 +3,9 @@ import os
 import glob
 import yaml
 import pickle
-import multiprocessing as mp
 from functools import partial
 
+import multiprocessing as mp
 import numpy as np
 import torch
 import torch.optim as optim
@@ -22,7 +22,13 @@ from test_mv_da import inference
 
 torch.manual_seed(123)
 
-def main(args, device):
+def collate(batch):
+    graphs = []
+    for sample in batch:
+        graphs.extend([g for g in sample['graphs']])
+    return graphs
+
+def main(args, device, collate_fun):
     # Load config
     config = yaml.safe_load(open('config/config_training.yaml', 'r'))
 
@@ -83,17 +89,12 @@ def main(args, device):
     train_ds = torch.utils.data.ConcatDataset(train_ds)
     val_ds = torch.utils.data.ConcatDataset(val_ds)
 
-    def collate(batch):
-        graphs = []
-        for sample in batch:
-            graphs.extend([g for g in sample['graphs']])
-        return graphs
-
     # Define dataloader
     train_dl = torch.utils.data.DataLoader(
         dataset=train_ds,
         batch_size=args.batch_size,
-        collate_fn=collate,
+        collate_fn=collate_fun,
+        num_workers=config['DATALOADER']['NUM_WORKERS'],
         shuffle=True,
         drop_last=False
     )
@@ -102,7 +103,8 @@ def main(args, device):
     val_dl = torch.utils.data.DataLoader(
         dataset=val_ds,
         batch_size=args.batch_size,
-        collate_fn=collate,
+        collate_fn=collate_fun,
+        num_workers=config['DATALOADER']['NUM_WORKERS'],
         shuffle=False,
         drop_last=False
     )
@@ -255,6 +257,7 @@ def main(args, device):
 
 if __name__== '__main__':
     mp.set_start_method('spawn')
+
     ###########
     # ArgParser
     parser = argparse.ArgumentParser()
@@ -302,4 +305,4 @@ if __name__== '__main__':
     else:
         device = torch.device("cpu")
 
-    main(args, device)
+    main(args, device, collate)

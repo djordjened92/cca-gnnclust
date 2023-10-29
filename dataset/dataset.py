@@ -1,5 +1,4 @@
 import numpy as np
-import multiprocessing as mp
 import torch
 from PIL import Image
 from skimage import io, transform
