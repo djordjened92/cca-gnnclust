@@ -5,7 +5,6 @@ import yaml
 import pickle
 from functools import partial
 
-import multiprocessing as mp
 import numpy as np
 import torch
 import torch.optim as optim
@@ -94,7 +93,6 @@ def main(args, device, collate_fun):
         dataset=train_ds,
         batch_size=args.batch_size,
         collate_fn=collate_fun,
-        num_workers=config['DATALOADER']['NUM_WORKERS'],
         shuffle=True,
         drop_last=False
     )
@@ -104,7 +102,6 @@ def main(args, device, collate_fun):
         dataset=val_ds,
         batch_size=args.batch_size,
         collate_fn=collate_fun,
-        num_workers=config['DATALOADER']['NUM_WORKERS'],
         shuffle=False,
         drop_last=False
     )
@@ -256,8 +253,6 @@ def main(args, device, collate_fun):
         tb_writer.add_scalar('Val_Metrics/V_Measure', m_vmes, epoch)
 
 if __name__== '__main__':
-    mp.set_start_method('spawn')
-
     ###########
     # ArgParser
     parser = argparse.ArgumentParser()

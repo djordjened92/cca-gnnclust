@@ -135,11 +135,11 @@ class GraphDataset(Dataset):
 
         sample = {
             'graphs': gss,
-            'labels': scene['node_labels'].copy(),
-            'features': node_embeds.copy(),
-            'xws': scene['xws'].copy(),
-            'yws': scene['yws'].copy(),
-            'cam_ids': scene['cam_ids'].copy()
+            'labels': scene['node_labels'],
+            'features': node_embeds,
+            'xws': scene['xws'],
+            'yws': scene['yws'],
+            'cam_ids': scene['cam_ids']
         }
         return sample
     
