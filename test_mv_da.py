@@ -11,7 +11,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
-from dataset import LanderDataset, prepare_dataset_graphs_mp
+from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
@@ -120,7 +120,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
     return global_pred_labels
 
 def main(args, device):
-    test_ds = prepare_dataset_graphs_mp(args.data_paths, args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
+    test_ds = prepare_dataset_graphs_mp(args.data_paths[0], args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
 
     # Model Definition
     feature_dim = test_ds[0]['graphs'][0].ndata["features"].shape[1]

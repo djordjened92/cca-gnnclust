@@ -1,10 +1,10 @@
-import pickle
-
 import numpy as np
 import multiprocessing as mp
 import torch
+from PIL import Image
+from skimage import io, transform
 from torch.utils.data import Dataset
-from dgl import transforms as T
+
 from utils import (
     build_knns,
     build_next_level,
@@ -20,65 +20,132 @@ from utils import (
 
 import dgl
 
-def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
-    dataset = LanderDataset(
-        features=features,
-        labels=labels,
-        xws=xws,
-        yws=yws,
-        cam_ids=cam_ids,
-        k=k,
-        levels=levels,
-        faiss_gpu=faiss_gpu,
-        augment=True
-    )
-    return [g.to(device) for g in dataset.gs]
+# def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
+#     dataset = LanderDataset(
+#         features=features,
+#         labels=labels,
+#         xws=xws,
+#         yws=yws,
+#         cam_ids=cam_ids,
+#         k=k,
+#         levels=levels,
+#         faiss_gpu=faiss_gpu
+#     )
+#     return [g.to(device) for g in dataset.gs]
 
-def prepare_dataset_graphs_mp(data_path, k, levels, device, faiss_gpu, num_workers):
-    with open(data_path, "rb") as f:
-        data = pickle.load(f)
+# def prepare_dataset_graphs_mp(data_path, k, levels, device, faiss_gpu, num_workers):
+#     with open(data_path, "rb") as f:
+#         data = pickle.load(f)
 
-    g_labels = []
-    g_features = []
-    g_xws = []
-    g_yws = []
-    g_cams = []
-    process_inputs = []
-    for scene in data:
-        # Embed world position into embeddings
-        node_len = scene['node_embeds'].shape[-1]
-        coo_extend = node_len // 2
-        xws = np.repeat(scene['xws'][:, None] / 360., coo_extend, axis=-1)
-        yws = np.repeat(scene['yws'][:, None] / 288., coo_extend, axis=-1)
-        scene['node_embeds'] = np.concatenate([scene['node_embeds'], xws, yws], axis=-1)
+#     g_labels = []
+#     g_features = []
+#     g_xws = []
+#     g_yws = []
+#     g_cams = []
+#     process_inputs = []
+#     for scene in data:
+#         # Embed world position into embeddings
+#         node_len = scene['node_embeds'].shape[-1]
+#         coo_extend = node_len // 2
+#         xws = np.repeat(scene['xws'][:, None] / 360., coo_extend, axis=-1)
+#         yws = np.repeat(scene['yws'][:, None] / 288., coo_extend, axis=-1)
+#         scene['node_embeds'] = np.concatenate([scene['node_embeds'], xws, yws], axis=-1)
 
-        # scene['node_embeds'] = np.concatenate(
-        #     [scene['node_embeds'], scene['xws'][:, None] / 360., scene['yws'][:, None] / 288.],
-        #     axis=-1
-        # )
+#         # scene['node_embeds'] = np.concatenate(
+#         #     [scene['node_embeds'], scene['xws'][:, None] / 360., scene['yws'][:, None] / 288.],
+#         #     axis=-1
+#         # )
 
-        scene['node_embeds'] = l2norm(scene['node_embeds'].astype("float32"))
-        g_labels.append(scene['node_labels'])
-        g_features.append(scene['node_embeds'])
-        g_xws.append(scene['xws'])
-        g_yws.append(scene['yws'])
-        g_cams.append(scene['cam_ids'])
-        process_inputs.append((
-            scene['node_embeds'],
-            scene['node_labels'],
-            scene['xws'],
-            scene['yws'],
-            scene['cam_ids'],
+#         scene['node_embeds'] = l2norm(scene['node_embeds'].astype("float32"))
+#         g_labels.append(scene['node_labels'])
+#         g_features.append(scene['node_embeds'])
+#         g_xws.append(scene['xws'])
+#         g_yws.append(scene['yws'])
+#         g_cams.append(scene['cam_ids'])
+#         process_inputs.append((
+#             scene['node_embeds'],
+#             scene['node_labels'],
+#             scene['xws'],
+#             scene['yws'],
+#             scene['cam_ids'],
+#             k,
+#             levels,
+#             device,
+#             faiss_gpu
+#         ))
+
+#     with mp.Pool(num_workers) as pool:
+#         gss = pool.starmap(worker, process_inputs)
+
+#     return GraphDataset(gss, g_labels, g_features, g_xws, g_yws, g_cams)
+
+class GraphDataset(Dataset):
+    def __init__(
+            self,
+            sequence,
+            feature_len,
+            feature_model,
             k,
             levels,
+            faiss_gpu,
             device,
-            faiss_gpu
-        ))
+            transform=None
+    ):
+        self.sequence = sequence
+        self.k = k
+        self.levels = levels
+        self.faiss_gpu = faiss_gpu
+        self.device = device
+        self.transform = transform
+        self.feature_model = feature_model
+        self.coo_extend = feature_len // 2
+    
+    def __getitem__(self, index):
+        scene = self.sequence[index]
+        crop_paths = scene['bboxes_paths']
+        embeds = []
 
-    with mp.Pool(num_workers) as pool:
-        gss = pool.starmap(worker, process_inputs)
+        for path in crop_paths:
+            crop_image = io.imread(path)
+            crop_image = Image.fromarray(crop_image)
+            if self.transform:
+                crop_image = self.transform(crop_image)
 
-    return GraphDataset(gss, g_labels, g_features, g_xws, g_yws, g_cams)
+            # Extract features
+            with torch.no_grad():
+                _, reid_embed = self.feature_model(crop_image[None, ...].to(self.device))
+                embeds.append(reid_embed.cpu().numpy())
+
+        embeds = np.concatenate(embeds, axis=0)
+
+        # Embed box world coordinates
+        xws = np.repeat(scene['xws'][:, None], self.coo_extend, axis=-1)
+        yws = np.repeat(scene['yws'][:, None], self.coo_extend, axis=-1)
+        node_embeds = np.concatenate([embeds, xws, yws], axis=-1)
+        lander_ds = LanderDataset(
+            features=node_embeds,
+            labels=scene['node_labels'],
+            xws=scene['xws'],
+            yws=scene['yws'],
+            cam_ids=scene['cam_ids'],
+            k=self.k,
+            levels=self.levels,
+            faiss_gpu=self.faiss_gpu
+        )
+        gss = [g.to(self.device) for g in lander_ds.gs]
+
+        sample = {
+            'graphs': gss,
+            'labels': scene['node_labels'].copy(),
+            'features': node_embeds.copy(),
+            'xws': scene['xws'].copy(),
+            'yws': scene['yws'].copy(),
+            'cam_ids': scene['cam_ids'].copy()
+        }
+        return sample
+    
+    def __len__(self):
+        return len(self.sequence)
 
 class LanderDataset(object):
     def __init__(
@@ -91,21 +158,15 @@ class LanderDataset(object):
         cluster_features=None,
         k=10,
         levels=1,
-        faiss_gpu=False,
-        augment=False
+        faiss_gpu=False
     ):
         self.k = k
-        self.augment = augment
         self.gs = []
         self.nbrs = []
         self.sims = []
         self.levels = levels
         global_xws = xws.copy()
         global_yws = yws.copy()
-
-        # Augment graph transformations
-        self.transforms = T.Compose([T.DropNode(p=0.05),
-                                     T.DropEdge(p=0.05)])
 
         # Initialize features and labels
         features = l2norm(features.astype("float32"))
@@ -141,10 +202,10 @@ class LanderDataset(object):
             )
 
             # Apply graph augmentation during training
-            if self.augment:
-                g = self.transforms(g)
-                if g.num_nodes() == 0:
-                    break
+            # if self.augment:
+            #     g = self.transforms(g)
+            #     if g.num_nodes() == 0:
+            #         break
 
             self.gs.append(g)
 
@@ -222,26 +283,3 @@ class LanderDataset(object):
         )
 
         return g
-
-class GraphDataset(Dataset):
-    def __init__(self, gs, g_labels, g_features, g_xws, g_yws, g_cams):
-        self.gs = gs
-        self.g_labels = g_labels
-        self.g_features = g_features
-        self.g_xws = g_xws
-        self.g_yws = g_yws
-        self.g_cams = g_cams
-    
-    def __getitem__(self, index):
-        sample = {
-            'graphs': self.gs[index],
-            'labels': self.g_labels[index],
-            'features': self.g_features[index],
-            'xws': self.g_xws[index],
-            'yws': self.g_yws[index],
-            'cam_ids': self.g_cams[index]
-        }
-        return sample
-    
-    def __len__(self):
-        return len(self.gs)

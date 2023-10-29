@@ -1,18 +1,21 @@
 import argparse
 import os
 import glob
+import yaml
 import pickle
 import multiprocessing as mp
 from functools import partial
 
-import dgl
-
 import numpy as np
 import torch
 import torch.optim as optim
+from torchvision import transforms as T
+from torchvision.transforms import (
+    ColorJitter, RandomHorizontalFlip
+)
 from torch.utils.tensorboard import SummaryWriter
-from dataset import prepare_dataset_graphs_mp
-from models import LANDER
+from dataset import GraphDataset
+from models import LANDER, load_feature_extractor
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
 from test_mv_da import inference
@@ -20,13 +23,62 @@ from test_mv_da import inference
 torch.manual_seed(123)
 
 def main(args, device):
+    # Load config
+    config = yaml.safe_load(open('config/config_training.yaml', 'r'))
+
+    #################################
+    # Load feature extraction model #
+    #################################
+    feature_model = load_feature_extractor(config, device)
+
+    #############
+    # Load data #
+    #############
+    feature_dim = 256
+
+    # Transformations
+    val_transform = T.Compose([
+        T.Resize(config['DATASET_VAL']['RESIZE']),
+        T.ToTensor(),
+        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
+                    std=config['DATASET_VAL']['STD'])
+    ])
+
+    train_transform = T.Compose([
+        T.Resize(config['DATASET_VAL']['RESIZE']),
+        RandomHorizontalFlip(),
+        ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1, hue=0),
+        T.ToTensor(),
+        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
+                    std=config['DATASET_VAL']['STD'])
+    ])
+
     train_ds = []
     val_ds = []
     for data_path in args.data_paths:
-        ds = prepare_dataset_graphs_mp(data_path, args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
+        with open(data_path, "rb") as f:
+            ds = pickle.load(f)
+
         split_idx = int(0.85 * len(ds))
-        train_ds.append(torch.utils.data.Subset(ds, range(split_idx)))
-        val_ds.append(torch.utils.data.Subset(ds, range(split_idx, len(ds))))
+        train_seq = ds[:split_idx]
+        val_seq = ds[split_idx:]
+
+        train_ds.append(GraphDataset(train_seq,
+                                     feature_dim,
+                                     feature_model,
+                                     args.knn_k,
+                                     args.levels,
+                                     args.faiss_gpu,
+                                     device,
+                                     train_transform))
+        val_ds.append(GraphDataset(val_seq,
+                                   feature_dim,
+                                   feature_model,
+                                   args.knn_k,
+                                   args.levels,
+                                   args.faiss_gpu,
+                                   device,
+                                   val_transform))
 
     train_ds = torch.utils.data.ConcatDataset(train_ds)
     val_ds = torch.utils.data.ConcatDataset(val_ds)
@@ -58,9 +110,9 @@ def main(args, device):
 
     ##################
     # Model Definition
-    feature_dim = train_ds[0]['graphs'][0].ndata["features"].shape[1]
+    node_feature_dim = train_ds[0]['graphs'][0].ndata["features"].shape[1]
     model = LANDER(
-        feature_dim=feature_dim,
+        feature_dim=node_feature_dim,
         nhid=args.hidden,
         num_conv=args.num_conv,
         dropout=args.dropout,

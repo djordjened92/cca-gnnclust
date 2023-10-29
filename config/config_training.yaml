@@ -1,0 +1,16 @@
+DATASET_TRAIN:
+    IMAUG: True
+    RESIZE: [128, 64]
+    MEAN: [0.485, 0.456, 0.406]
+    STD: [0.229, 0.224, 0.225]
+    ZERO_PADDING: False
+
+DATASET_VAL:
+    RESIZE: [128, 64]
+    MEAN: [0.485, 0.456, 0.406]
+    STD: [0.229, 0.224, 0.225]
+    ZERO_PADDING: False
+
+CNN_MODEL:
+    model_weights_path: /home/djordje/Documents/Projects/instance_association/GNN-CCA/trained_models/reid/resnet50_market_cuhk_duke.tar-232
+    L2norm: True
