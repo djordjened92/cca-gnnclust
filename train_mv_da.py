@@ -11,7 +11,7 @@ import torch
 import torch.optim as optim
 from torchvision import transforms as T
 from torchvision.transforms import (
-    ColorJitter, RandomHorizontalFlip
+    ColorJitter, RandomHorizontalFlip, RandomRotation
 )
 from torch.utils.tensorboard import SummaryWriter
 from dataset import SceneDataset, GraphDataset, prepare_dataset_graphs_mp
@@ -52,7 +52,7 @@ def main(args, device, collate_fun):
 
     train_transform = T.Compose([
         T.Resize(config['DATASET_VAL']['RESIZE']),
-        RandomHorizontalFlip(),
+        RandomRotation(20),
         ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1, hue=0),
         T.ToTensor(),
         T.Normalize(mean=config['DATASET_VAL']['MEAN'],
