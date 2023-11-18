@@ -65,7 +65,7 @@ def main(args, device, collate_fun):
         with open(data_path, "rb") as f:
             ds = pickle.load(f)
 
-        split_idx = int(0.85 * len(ds))
+        split_idx = int(0.8 * len(ds))
         train_seq = ds[:split_idx]
         val_seq = ds[split_idx:]
 
@@ -103,7 +103,7 @@ def main(args, device, collate_fun):
 
     ##################
     # Model Definition
-    node_feature_dim = 2 * feature_dim
+    node_feature_dim = feature_dim + 2
     model = LANDER(feature_dim=node_feature_dim,
                    nhid=args.hidden,
                    num_conv=args.num_conv,
@@ -121,17 +121,13 @@ def main(args, device, collate_fun):
     # Hyperparameters
     opt = optim.Adam(
         model.parameters(),
-        lr=1e-6,
+        lr=args.base_lr,
         # momentum=args.momentum,
         weight_decay=args.weight_decay,
     )
-    scheduler = optim.lr_scheduler.CyclicLR(
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(
         opt,
-        base_lr=args.base_lr,
-        max_lr=args.max_lr,
-        mode='triangular2',
-        step_size_up=args.epochs // 10,
-        cycle_momentum=False
+        T_max=args.epochs
     )
 
     #################

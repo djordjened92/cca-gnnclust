@@ -107,9 +107,9 @@ class SceneDataset(Dataset):
             embeds = embeds.cpu().numpy()
 
         # Embed box world coordinates
-        xws = np.repeat(scene['xws'][:, None], self.coo_extend, axis=-1)
-        yws = np.repeat(scene['yws'][:, None], self.coo_extend, axis=-1)
-        node_embeds = np.concatenate([embeds, xws, yws], axis=-1)
+        xws = scene['xws'][:, None]
+        yws = scene['yws'][:, None]
+        node_embeds = np.concatenate([embeds, xws / 360., yws / 288.], axis=-1)
 
         sample = {
             'node_labels': scene['node_labels'],
@@ -240,7 +240,7 @@ class LanderDataset(object):
         g.ndata["norm"] = torch.FloatTensor(adj_row_sum)
         g.apply_edges(
             lambda edges: {
-                "raw_affine": edges.data["affine"] / edges.dst["norm"]
+                "raw_affine": edges.data["affine"]
             }
         )
         g.apply_edges(

@@ -1,16 +1,14 @@
 import argparse
-import os
+import yaml
 import pickle
-import time
 import multiprocessing as mp
-from functools import partial
-
-import dgl
 
 import numpy as np
 import torch
-import torch.optim as optim
+from torchvision import transforms as T
 from torch.utils.tensorboard import SummaryWriter
+from models import LANDER, load_feature_extractor
+from dataset import SceneDataset
 from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
@@ -46,7 +44,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
     # Maximum instances per camera is number of clusters
     max_inst_count = np.max(cam_counts)
 
-    print(f'\nLables: {labels}')
+    # print(f'\nLables: {labels}')
     # Predict connectivity and density
     for level in range(args.levels):
         with torch.no_grad():
@@ -69,7 +67,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
         ids = ids[peaks]
         new_global_edges_len = len(global_edges[0])
         num_edges_add_this_level = new_global_edges_len - global_edges_len
-        print(f'Level {level}, pred labels: {global_pred_labels}')
+        # print(f'Level {level}, pred labels: {global_pred_labels}')
 
         if len(np.unique(global_pred_labels)) <= max_inst_count \
             and len(prev_global_pred_labels) > 0:
@@ -120,20 +118,46 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
     return global_pred_labels
 
 def main(args, device):
-    test_ds = prepare_dataset_graphs_mp(args.data_paths[0], args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
+    # Load config
+    config = yaml.safe_load(open('config/config_training.yaml', 'r'))
+
+    #################################
+    # Load feature extraction model #
+    #################################
+    feature_model = load_feature_extractor(config, device)
+
+    #############
+    # Load data #
+    #############
+    feature_dim = 256
+
+    # Transformations
+    transform = T.Compose([
+        T.Resize(config['DATASET_VAL']['RESIZE']),
+        T.ToTensor(),
+        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
+                    std=config['DATASET_VAL']['STD'])
+    ])
+
+    with open(args.data_paths[0], "rb") as f:
+        ds = pickle.load(f)
+
+    test_ds = SceneDataset(ds,
+                           feature_dim,
+                           feature_model,
+                           device,
+                           transform)
 
     # Model Definition
-    feature_dim = test_ds[0]['graphs'][0].ndata["features"].shape[1]
-    model = LANDER(
-        feature_dim=feature_dim,
-        nhid=args.hidden,
-        num_conv=args.num_conv,
-        dropout=args.dropout,
-        use_GAT=args.gat,
-        K=args.gat_k,
-        balance=args.balance,
-        use_cluster_feat=args.use_cluster_feat
-    )
+    node_feature_dim = feature_dim + 2
+    model = LANDER(feature_dim=node_feature_dim,
+                   nhid=args.hidden,
+                   num_conv=args.num_conv,
+                   dropout=args.dropout,
+                   use_GAT=args.gat,
+                   K=args.gat_k,
+                   balance=args.balance,
+                   use_cluster_feat=args.use_cluster_feat)
 
     model.load_state_dict(torch.load(args.model_path))
     model = model.to(device)
@@ -146,8 +170,8 @@ def main(args, device):
     v_measure = []
 
     for sample in test_ds:
-        labels = sample['labels']
-        predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+        labels = sample['node_labels']
+        predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
 
         rand_index.append(metrics.ari(labels, predictions))
         ami.append(metrics.ami(labels, predictions))
