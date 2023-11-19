@@ -75,7 +75,6 @@ class SceneDataset(Dataset):
     def __init__(
             self,
             sequence,
-            feature_len,
             feature_model,
             device,
             transform=None
@@ -84,7 +83,6 @@ class SceneDataset(Dataset):
         self.transform = transform
         self.feature_model = feature_model
         self.device = device
-        self.coo_extend = feature_len // 2
     
     def __getitem__(self, index):
         scene = self.sequence[index]
@@ -108,8 +106,13 @@ class SceneDataset(Dataset):
 
         # Embed box world coordinates
         xws = scene['xws'][:, None]
+        xmin, xmax = xws.min(), xws.max()
+        xws = (xws - xmin) / (xmax - xmin)
+
         yws = scene['yws'][:, None]
-        node_embeds = np.concatenate([embeds, xws / 360., yws / 288.], axis=-1)
+        ymin, ymax = yws.min(), yws.max()
+        yws = (yws - ymin) / (ymax - ymin)
+        node_embeds = np.concatenate([embeds, xws, yws], axis=-1)
 
         sample = {
             'node_labels': scene['node_labels'],

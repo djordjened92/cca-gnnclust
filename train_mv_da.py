@@ -1,6 +1,7 @@
 import argparse
 import os
 import glob
+import math
 import yaml
 import pickle
 import multiprocessing as mp
@@ -20,8 +21,6 @@ from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
 from test_mv_da import inference
 
-torch.manual_seed(123)
-
 def collate(batch):
     graphs = []
     for sample in batch:
@@ -40,7 +39,6 @@ def main(args, device, collate_fun):
     #############
     # Load data #
     #############
-    feature_dim = 256
 
     # Transformations
     val_transform = T.Compose([
@@ -70,21 +68,16 @@ def main(args, device, collate_fun):
         val_seq = ds[split_idx:]
 
         train_ds.append(SceneDataset(train_seq,
-                                     feature_dim,
                                      feature_model,
                                      device,
                                      train_transform))
         val_ds.append(SceneDataset(val_seq,
-                                   feature_dim,
                                    feature_model,
                                    device,
                                    val_transform))
 
     train_ds = torch.utils.data.ConcatDataset(train_ds)
     val_ds = torch.utils.data.ConcatDataset(val_ds)
-
-    train_len = len(train_ds) * args.batch_size
-    val_len = len(val_ds) * args.batch_size
 
     # Final validation ds can be created once
     scene_seq = [sample for sample in val_ds]
@@ -103,7 +96,7 @@ def main(args, device, collate_fun):
 
     ##################
     # Model Definition
-    node_feature_dim = feature_dim + 2
+    node_feature_dim = train_ds[0]['node_embeds'].shape[1]
     model = LANDER(feature_dim=node_feature_dim,
                    nhid=args.hidden,
                    num_conv=args.num_conv,
@@ -125,9 +118,15 @@ def main(args, device, collate_fun):
         # momentum=args.momentum,
         weight_decay=args.weight_decay,
     )
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    # scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    #     opt,
+    #     T_max=args.epochs
+    # )
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
         opt,
-        T_max=args.epochs
+        max_lr=args.base_lr,
+        steps_per_epoch=math.ceil(len(train_ds) / args.batch_size),
+        epochs=args.epochs
     )
 
     #################
@@ -158,6 +157,7 @@ def main(args, device, collate_fun):
                                                   collate_fn=collate_fun,
                                                   drop_last=False)
 
+        num_of_graphs = 0
         for batch in train_gs_dl:
             loss = 0
             opt.zero_grad()
@@ -167,14 +167,15 @@ def main(args, device, collate_fun):
                 all_loss_den += loss_den
                 all_loss_conn += loss_conn
                 loss += curr_loss
+                num_of_graphs += 1
             loss /= args.batch_size
             loss.backward()
             opt.step()
         scheduler.step()
 
         # Record
-        avg_loss_den = all_loss_den / train_len
-        avg_loss_conn = all_loss_conn / train_len
+        avg_loss_den = all_loss_den / num_of_graphs
+        avg_loss_conn = all_loss_conn / num_of_graphs
         print(
             "Training, epoch: %d, loss_den: %.6f, loss_conn: %.6f"
             % (epoch, avg_loss_den, avg_loss_conn)
@@ -193,6 +194,7 @@ def main(args, device, collate_fun):
         homogeneity = []
         completeness = []
         v_measure = []
+        num_of_graphs = 0
         with torch.no_grad():
             for val_batch in val_gs_dl:
                 for g in val_batch:
@@ -200,11 +202,12 @@ def main(args, device, collate_fun):
                     _, loss_den_val, loss_conn_val = model.compute_loss(processed_g)
                     all_loss_den_val += loss_den_val
                     all_loss_conn_val += loss_conn_val
+                    num_of_graphs += 1
 
         torch.save(model.state_dict(), os.path.join(model_dir, 'model.pth'))
 
-        avg_loss_den_val = all_loss_den_val / val_len
-        avg_loss_conn_val = all_loss_conn_val / val_len
+        avg_loss_den_val = all_loss_den_val / num_of_graphs
+        avg_loss_conn_val = all_loss_conn_val / num_of_graphs
         
         # Record
         print(
