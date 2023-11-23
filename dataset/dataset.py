@@ -120,8 +120,8 @@ class SceneDataset(Dataset):
         embed_len = embeds.shape[1]
         coords_len = coords.shape[1]
         denom = embed_len * embed_norm + coords_len * coords_norm
-        embed_coeff = embed_len / denom
-        coords_coeff = coords_len / denom
+        embed_coeff = coords_len / denom
+        coords_coeff = embed_len / denom
         node_embeds = np.concatenate([embed_coeff * embeds, coords_coeff * coords], axis=-1)
 
         sample = {
