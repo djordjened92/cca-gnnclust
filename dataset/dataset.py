@@ -112,7 +112,17 @@ class SceneDataset(Dataset):
         yws = scene['yws'][:, None]
         ymin, ymax = yws.min(), yws.max()
         yws = (yws - ymin) / (ymax - ymin)
-        node_embeds = np.concatenate([embeds, xws, yws], axis=-1)
+
+        # Balance importance
+        coords = np.concatenate([xws, yws], axis=1)
+        embed_norm = np.linalg.norm(embeds, axis=1, keepdims=True)
+        coords_norm = np.linalg.norm(coords, axis=1, keepdims=True)
+        embed_len = embeds.shape[1]
+        coords_len = coords.shape[1]
+        denom = embed_len * embed_norm + coords_len * coords_norm
+        embed_coeff = embed_len / denom
+        coords_coeff = coords_len / denom
+        node_embeds = np.concatenate([embed_coeff * embeds, coords_coeff * coords], axis=-1)
 
         sample = {
             'node_labels': scene['node_labels'],

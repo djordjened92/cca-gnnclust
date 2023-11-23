@@ -63,9 +63,12 @@ def main(args, device, collate_fun):
         with open(data_path, "rb") as f:
             ds = pickle.load(f)
 
-        split_idx = int(0.8 * len(ds))
-        train_seq = ds[:split_idx]
-        val_seq = ds[split_idx:]
+        start_idx = int(0.1 * len(ds))
+        end_idx = int(0.85 * len(ds))
+        train_seq = ds[start_idx:end_idx]
+        val_seq = np.concatenate((ds[:start_idx], ds[end_idx:]))
+        print(f'Training length: {len(train_seq)}')
+        print(f'Validation length: {len(val_seq)}')
 
         train_ds.append(SceneDataset(train_seq,
                                      feature_model,
