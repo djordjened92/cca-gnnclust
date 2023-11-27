@@ -13,8 +13,6 @@ from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
-torch.manual_seed(123)
-
 def inference(features, labels, xws, yws, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
@@ -143,13 +141,12 @@ def main(args, device):
         ds = pickle.load(f)
 
     test_ds = SceneDataset(ds,
-                           feature_dim,
                            feature_model,
                            device,
                            transform)
 
     # Model Definition
-    node_feature_dim = feature_dim + 2
+    node_feature_dim = test_ds[0]['node_embeds'].shape[1]
     model = LANDER(feature_dim=node_feature_dim,
                    nhid=args.hidden,
                    num_conv=args.num_conv,

@@ -114,15 +114,16 @@ class SceneDataset(Dataset):
         yws = (yws - ymin) / (ymax - ymin)
 
         # Balance importance
-        coords = np.concatenate([xws, yws], axis=1)
-        embed_norm = np.linalg.norm(embeds, axis=1, keepdims=True)
-        coords_norm = np.linalg.norm(coords, axis=1, keepdims=True)
-        embed_len = embeds.shape[1]
-        coords_len = coords.shape[1]
-        denom = embed_len * embed_norm + coords_len * coords_norm
-        embed_coeff = coords_len / denom
-        coords_coeff = embed_len / denom
-        node_embeds = np.concatenate([embed_coeff * embeds, coords_coeff * coords], axis=-1)
+        # coords = np.concatenate([xws, yws], axis=1)
+        # embed_norm = np.linalg.norm(embeds, axis=1, keepdims=True)
+        # coords_norm = np.linalg.norm(coords, axis=1, keepdims=True)
+        # embed_len = embeds.shape[1]
+        # coords_len = coords.shape[1]
+        # denom = embed_len * embed_norm + coords_len * coords_norm
+        # embed_coeff = coords_len / denom
+        # coords_coeff = embed_len / denom
+        # node_embeds = np.concatenate([embed_coeff * embeds, coords_coeff * coords], axis=-1)
+        node_embeds = embeds
 
         sample = {
             'node_labels': scene['node_labels'],
@@ -177,7 +178,7 @@ class LanderDataset(object):
                 self.levels = lvl
                 break
 
-            knns = build_knns(features, self.k, faiss_gpu)
+            knns = build_knns(features, self.k, xws, yws, faiss_gpu)
             knns = mark_same_camera_nbrs(knns, cam_ids)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]

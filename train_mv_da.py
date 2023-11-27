@@ -4,6 +4,7 @@ import glob
 import math
 import yaml
 import pickle
+import random
 import multiprocessing as mp
 from functools import partial
 
@@ -20,6 +21,63 @@ from models import LANDER, load_feature_extractor
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
 from test_mv_da import inference
+
+class RandomErasing(object):
+    """Randomly erases an image patch.
+
+    Origin: `<https://github.com/zhunzhong07/Random-Erasing>`_
+
+    Reference:
+        Zhong et al. Random Erasing Data Augmentation.
+
+    Args:
+        probability (float, optional): probability that this operation takes place.
+            Default is 0.5.
+        sl (float, optional): min erasing area.
+        sh (float, optional): max erasing area.
+        r1 (float, optional): min aspect ratio.
+        mean (list, optional): erasing value.
+    """
+
+    def __init__(
+        self,
+        probability=0.5,
+        sl=0.02,
+        sh=0.4,
+        r1=0.3,
+        mean=[0.4914, 0.4822, 0.4465]
+    ):
+        self.probability = probability
+        self.mean = mean
+        self.sl = sl
+        self.sh = sh
+        self.r1 = r1
+
+    def __call__(self, img):
+        if random.uniform(0, 1) > self.probability:
+            return img
+
+        for attempt in range(100):
+            area = img.size()[1] * img.size()[2]
+
+            target_area = random.uniform(self.sl, self.sh) * area
+            aspect_ratio = random.uniform(self.r1, 1 / self.r1)
+
+            h = int(round(math.sqrt(target_area * aspect_ratio)))
+            w = int(round(math.sqrt(target_area / aspect_ratio)))
+
+            if w < img.size()[2] and h < img.size()[1]:
+                x1 = random.randint(0, img.size()[1] - h)
+                y1 = random.randint(0, img.size()[2] - w)
+                if img.size()[0] == 3:
+                    img[0, x1:x1 + h, y1:y1 + w] = self.mean[0]
+                    img[1, x1:x1 + h, y1:y1 + w] = self.mean[1]
+                    img[2, x1:x1 + h, y1:y1 + w] = self.mean[2]
+                else:
+                    img[0, x1:x1 + h, y1:y1 + w] = self.mean[0]
+                return img
+
+        return img
 
 def collate(batch):
     graphs = []
@@ -49,12 +107,13 @@ def main(args, device, collate_fun):
     ])
 
     train_transform = T.Compose([
-        T.Resize(config['DATASET_VAL']['RESIZE']),
+        T.Resize(config['DATASET_TRAIN']['RESIZE']),
         RandomRotation(20),
         ColorJitter(brightness=0.2, contrast=0.15, saturation=0.1, hue=0),
         T.ToTensor(),
-        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
-                    std=config['DATASET_VAL']['STD'])
+        T.Normalize(mean=config['DATASET_TRAIN']['MEAN'],
+                    std=config['DATASET_TRAIN']['STD']),
+        RandomErasing(mean=config['DATASET_TRAIN']['MEAN'])
     ])
 
     train_ds = []
@@ -63,8 +122,8 @@ def main(args, device, collate_fun):
         with open(data_path, "rb") as f:
             ds = pickle.load(f)
 
-        start_idx = int(0.1 * len(ds))
-        end_idx = int(0.85 * len(ds))
+        start_idx = int(0.05 * len(ds))
+        end_idx = int(0.9 * len(ds))
         train_seq = ds[start_idx:end_idx]
         val_seq = np.concatenate((ds[:start_idx], ds[end_idx:]))
         print(f'Training length: {len(train_seq)}')

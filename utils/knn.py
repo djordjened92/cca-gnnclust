@@ -11,7 +11,7 @@ import faiss
 
 import numpy as np
 from tqdm import tqdm
-from utils import Timer
+from utils import Timer, l2norm
 
 from .faiss_search import faiss_search_knn
 from scipy.sparse import csr_matrix
@@ -87,8 +87,8 @@ def fast_knns2spmat(knns, k, th_sim=-1, fill_value=None):
     return spmat
 
 
-def build_knns(feats, k, faiss_gpu):
-    index = knn_faiss(feats, k, omp_num_threads=None, using_gpu=faiss_gpu)
+def build_knns(feats, k, xws, yws, faiss_gpu):
+    index = knn_faiss(feats, k, xws, yws, omp_num_threads=None, using_gpu=faiss_gpu)
     knns = index.get_knns()
     return knns
 
@@ -138,15 +138,14 @@ class knn_faiss(knn):
         self,
         feats,
         k,
-        nprobe=128,
+        xws,
+        yws,
         omp_num_threads=None,
-        rebuild_index=True,
         verbose=False,
-        using_gpu=True,
-        **kwargs
+        using_gpu=True
     ):
+        # Calculate knn based on appearance embeddings
         self._res_list = []
-
         if omp_num_threads is not None:
             faiss.omp_set_num_threads(omp_num_threads)
         self.verbose = verbose
@@ -174,7 +173,15 @@ class knn_faiss(knn):
 
         with Timer("[faiss] query topk {}".format(k), verbose):
             sims, nbrs = index.search(feats, k=k)
-            self.knns = list(zip(nbrs, sims))
+
+        # Expand similarities with position similarities
+        coordinates = np.stack((xws, yws), axis=1)
+        coordinates = l2norm(coordinates)
+        nbrs_coo = coordinates[nbrs]
+        coo_coefs = (nbrs_coo@coordinates[..., None]).squeeze()
+        sims = (sims + coo_coefs) / 2
+
+        self.knns = list(zip(nbrs, sims))
 
     def __del__(self):
         self.index.reset()

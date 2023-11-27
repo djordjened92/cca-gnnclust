@@ -28,6 +28,7 @@ class LANDER(nn.Module):
     ):
         super(LANDER, self).__init__()
         nhid_half = int(nhid / 2)
+        classifier_dim = 8
         self.use_cluster_feat = use_cluster_feat
         self.use_focal_loss = use_focal_loss
 
@@ -45,14 +46,14 @@ class LANDER(nn.Module):
                 GraphConv(input_dim[i], output_dim[i], dropout, use_GAT, K)
             )
 
-        self.src_mlp = nn.Linear(output_dim[num_conv - 1], nhid_half - 2)
-        self.dst_mlp = nn.Linear(output_dim[num_conv - 1], nhid_half - 2)
+        self.src_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
+        self.dst_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
 
         self.classifier_conn = nn.Sequential(
-            nn.PReLU(nhid),
-            nn.Linear(nhid, nhid),
-            nn.PReLU(nhid),
-            nn.Linear(nhid, 2),
+            nn.PReLU(2 * classifier_dim),
+            nn.Linear(2 * classifier_dim, classifier_dim),
+            nn.PReLU(classifier_dim),
+            nn.Linear(classifier_dim, 2),
         )
 
         if self.use_focal_loss:
