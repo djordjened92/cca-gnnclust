@@ -179,7 +179,7 @@ class knn_faiss(knn):
         coordinates = l2norm(coordinates)
         nbrs_coo = coordinates[nbrs]
         coo_coefs = (nbrs_coo@coordinates[..., None]).squeeze()
-        sims = (sims + coo_coefs) / 2
+        sims = sims * coo_coefs
 
         self.knns = list(zip(nbrs, sims))
 
