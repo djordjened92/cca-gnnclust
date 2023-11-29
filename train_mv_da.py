@@ -43,7 +43,7 @@ class RandomErasing(object):
         self,
         probability=0.5,
         sl=0.02,
-        sh=0.4,
+        sh=0.2,
         r1=0.3,
         mean=[0.4914, 0.4822, 0.4465]
     ):
@@ -113,7 +113,7 @@ def main(args, device, collate_fun):
         T.ToTensor(),
         T.Normalize(mean=config['DATASET_TRAIN']['MEAN'],
                     std=config['DATASET_TRAIN']['STD']),
-        RandomErasing(mean=config['DATASET_TRAIN']['MEAN'])
+        RandomErasing(probability=0.05, mean=config['DATASET_TRAIN']['MEAN'])
     ])
 
     train_ds = []
@@ -122,7 +122,7 @@ def main(args, device, collate_fun):
         with open(data_path, "rb") as f:
             ds = pickle.load(f)
 
-        start_idx = int(0.05 * len(ds))
+        start_idx = int(0.1 * len(ds))
         end_idx = int(0.9 * len(ds))
         train_seq = ds[start_idx:end_idx]
         val_seq = np.concatenate((ds[:start_idx], ds[end_idx:]))
