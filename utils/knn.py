@@ -175,11 +175,11 @@ class knn_faiss(knn):
             sims, nbrs = index.search(feats, k=k)
 
         # Expand similarities with position similarities
-        coordinates = np.stack((xws, yws), axis=1)
-        coordinates = l2norm(coordinates)
+        coordinates = np.concatenate((xws, yws), axis=1)
         nbrs_coo = coordinates[nbrs]
-        coo_coefs = (nbrs_coo@coordinates[..., None]).squeeze()
-        sims = sims * coo_coefs
+        coo_coefs = np.linalg.norm(nbrs_coo - coordinates[:, None, :], axis=-1)
+        beta = 1 / math.sqrt(2)
+        sims = np.clip(sims - beta * coo_coefs, -1., 1.)
 
         self.knns = list(zip(nbrs, sims))
 

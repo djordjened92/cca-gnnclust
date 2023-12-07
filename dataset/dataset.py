@@ -128,8 +128,8 @@ class SceneDataset(Dataset):
         sample = {
             'node_labels': scene['node_labels'],
             'node_embeds': node_embeds,
-            'xws': scene['xws'],
-            'yws': scene['yws'],
+            'xws': xws,
+            'yws': yws,
             'cam_ids': scene['cam_ids']
         }
         return sample

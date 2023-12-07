@@ -68,11 +68,11 @@ class LANDER(nn.Module):
         src_feat = self.src_mlp(edges.src["conv_features"])
         dst_feat = self.dst_mlp(edges.dst["conv_features"])
         feat_cat = torch.cat((src_feat,
-                              edges.src['xws'][:, None],
-                              edges.src['yws'][:, None],
+                              edges.src['xws'],
+                              edges.src['yws'],
                               dst_feat,
-                              edges.dst['xws'][:, None],
-                              edges.dst['yws'][:, None]), dim=1)
+                              edges.dst['xws'],
+                              edges.dst['yws']), dim=1)
         # world_dist_sq = torch.square(edges.src['xws'][:, None] - edges.dst['xws'][:, None]) \
         #              + torch.square(edges.src['yws'][:, None] - edges.dst['yws'][:, None])
 

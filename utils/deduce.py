@@ -166,14 +166,14 @@ def build_next_level(
         np.unique(np.sort(global_pred_labels), return_index=True)[1][1:],
     )
     cluster_features = np.zeros((len(peaks), global_features.shape[1]))
-    nxws = np.zeros((len(peaks)))
-    nyws = np.zeros((len(peaks)))
+    nxws = np.zeros((len(peaks), 1))
+    nyws = np.zeros((len(peaks), 1))
     for pi in range(len(peaks)):
         cluster_features[global_label_to_peak[pi], :] = np.mean(
             global_features[cluster_ind[pi], :], axis=0
         )
-        nxws[global_label_to_peak[pi]] = np.mean(global_xws[cluster_ind[pi]], axis=0)
-        nyws[global_label_to_peak[pi]] = np.mean(global_yws[cluster_ind[pi]], axis=0)
+        nxws[global_label_to_peak[pi], 0] = np.mean(global_xws[cluster_ind[pi]], axis=0)
+        nyws[global_label_to_peak[pi], 0] = np.mean(global_yws[cluster_ind[pi]], axis=0)
     features = features[peaks]
     labels = labels[peaks]
     cam_ids = cam_ids[peaks]

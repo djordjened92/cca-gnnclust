@@ -127,7 +127,6 @@ def main(args, device):
     #############
     # Load data #
     #############
-    feature_dim = 256
 
     # Transformations
     transform = T.Compose([
@@ -169,6 +168,11 @@ def main(args, device):
     for sample in test_ds:
         labels = sample['node_labels']
         predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+        # print(f'lab: {labels}')
+        # print(f'pred: {predictions}')
+        # print(f'ari: {metrics.ari(labels, predictions)}',
+        #       f'ami: {metrics.ami(labels, predictions)}',
+        #       f'v_mes: {metrics.v_mesure(labels, predictions)}\n')
 
         rand_index.append(metrics.ari(labels, predictions))
         ami.append(metrics.ami(labels, predictions))
