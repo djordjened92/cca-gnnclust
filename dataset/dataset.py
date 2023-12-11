@@ -20,13 +20,14 @@ from utils import (
 
 import dgl
 
-def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
+def worker(features, labels, xws, yws, cam_ids, max_dist, k, levels, device, faiss_gpu):
     dataset = LanderDataset(
         features=features,
         labels=labels,
         xws=xws,
         yws=yws,
         cam_ids=cam_ids,
+        max_dist=max_dist,
         k=k,
         levels=levels,
         faiss_gpu=faiss_gpu
@@ -47,6 +48,7 @@ def prepare_dataset_graphs_mp(sequence,
             scene['xws'],
             scene['yws'],
             scene['cam_ids'],
+            scene['max_dist'],
             k,
             levels,
             device,
@@ -75,10 +77,12 @@ class SceneDataset(Dataset):
     def __init__(
             self,
             sequence,
+            max_dist,
             feature_model,
             device,
             transform=None
     ):
+        self.max_dist = max_dist
         self.sequence = sequence
         self.transform = transform
         self.feature_model = feature_model
@@ -106,31 +110,16 @@ class SceneDataset(Dataset):
 
         # Embed box world coordinates
         xws = scene['xws'][:, None]
-        xmin, xmax = xws.min(), xws.max()
-        xws = (xws - xmin) / (xmax - xmin)
-
         yws = scene['yws'][:, None]
-        ymin, ymax = yws.min(), yws.max()
-        yws = (yws - ymin) / (ymax - ymin)
 
-        # Balance importance
-        # coords = np.concatenate([xws, yws], axis=1)
-        # embed_norm = np.linalg.norm(embeds, axis=1, keepdims=True)
-        # coords_norm = np.linalg.norm(coords, axis=1, keepdims=True)
-        # embed_len = embeds.shape[1]
-        # coords_len = coords.shape[1]
-        # denom = embed_len * embed_norm + coords_len * coords_norm
-        # embed_coeff = coords_len / denom
-        # coords_coeff = embed_len / denom
-        # node_embeds = np.concatenate([embed_coeff * embeds, coords_coeff * coords], axis=-1)
         node_embeds = embeds
-
         sample = {
             'node_labels': scene['node_labels'],
             'node_embeds': node_embeds,
             'xws': xws,
             'yws': yws,
-            'cam_ids': scene['cam_ids']
+            'cam_ids': scene['cam_ids'],
+            'max_dist': self.max_dist
         }
         return sample
     
@@ -145,12 +134,14 @@ class LanderDataset(object):
         xws,
         yws,
         cam_ids,
+        max_dist,
         cluster_features=None,
         k=10,
         levels=1,
         faiss_gpu=False
     ):
         self.k = k
+        self.max_dist = max_dist
         self.gs = []
         self.nbrs = []
         self.sims = []
@@ -172,13 +163,12 @@ class LanderDataset(object):
         ids = np.arange(global_num_nodes)
 
         # Recursive graph construction
-        # print(features.shape)
         for lvl in range(self.levels):
             if features.shape[0] < self.k:
                 self.levels = lvl
                 break
 
-            knns = build_knns(features, self.k, xws, yws, faiss_gpu)
+            knns = build_knns(features, self.k, xws, yws, self.max_dist, faiss_gpu)
             knns = mark_same_camera_nbrs(knns, cam_ids)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
@@ -190,12 +180,6 @@ class LanderDataset(object):
             g = self._build_graph(
                 features, cluster_features, labels, xws, yws, cam_ids, density, knns
             )
-
-            # Apply graph augmentation during training
-            # if self.augment:
-            #     g = self.transforms(g)
-            #     if g.num_nodes() == 0:
-            #         break
 
             self.gs.append(g)
 
@@ -254,7 +238,7 @@ class LanderDataset(object):
         g.ndata["norm"] = torch.FloatTensor(adj_row_sum)
         g.apply_edges(
             lambda edges: {
-                "raw_affine": edges.data["affine"]
+                "raw_affine": edges.data["affine"] / edges.dst["norm"]
             }
         )
         g.apply_edges(

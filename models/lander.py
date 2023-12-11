@@ -73,8 +73,6 @@ class LANDER(nn.Module):
                               dst_feat,
                               edges.dst['xws'],
                               edges.dst['yws']), dim=1)
-        # world_dist_sq = torch.square(edges.src['xws'][:, None] - edges.dst['xws'][:, None]) \
-        #              + torch.square(edges.src['yws'][:, None] - edges.dst['yws'][:, None])
 
         pred_conn = self.classifier_conn(feat_cat)
         return {"pred_conn": pred_conn}
