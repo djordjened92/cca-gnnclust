@@ -13,7 +13,7 @@ from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
-def inference(features, labels, xws, yws, cam_ids, model, device, args):
+def inference(features, labels, xws, yws, max_dist, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
@@ -24,6 +24,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
         xws=global_xws,
         yws=global_yws,
         cam_ids=cam_ids,
+        max_dist=max_dist,
         k=args.knn_k,
         levels=1,
         faiss_gpu=args.faiss_gpu,
@@ -104,6 +105,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
             xws=xws,
             yws=yws,
             cam_ids=cam_ids,
+            max_dist=max_dist,
             k=args.knn_k,
             levels=1,
             faiss_gpu=False,

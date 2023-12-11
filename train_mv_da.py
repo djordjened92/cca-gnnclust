@@ -288,7 +288,15 @@ def main(args, device, collate_fun):
         model.eval()
         for sample in val_ds:
             labels = sample['node_labels']
-            predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+            predictions = inference(sample['node_embeds'],
+                                    labels.copy(),
+                                    sample['xws'],
+                                    sample['yws'],
+                                    sample['max_dist'],
+                                    sample['cam_ids'],
+                                    model,
+                                    device,
+                                    args)
 
             rand_index.append(metrics.ari(labels, predictions))
             ami.append(metrics.ami(labels, predictions))
