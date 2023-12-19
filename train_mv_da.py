@@ -113,14 +113,14 @@ def main(args, device, collate_fun):
         T.ToTensor(),
         T.Normalize(mean=config['DATASET_TRAIN']['MEAN'],
                     std=config['DATASET_TRAIN']['STD']),
-        RandomErasing(probability=0.5, mean=config['DATASET_TRAIN']['MEAN'])
+        RandomErasing(probability=0.05, mean=config['DATASET_TRAIN']['MEAN'])
     ])
 
     train_ds = []
     val_ds = []
     for data_path in args.data_paths:
         ds_name = os.path.basename(data_path).split('_crops')[0]
-        max_dist = config['MAX_DIST'][ds_name]
+        coo2meter = config['MAX_DIST'][ds_name]
         with open(data_path, "rb") as f:
             ds = pickle.load(f)
 
@@ -132,12 +132,12 @@ def main(args, device, collate_fun):
         print(f'Validation length: {len(val_seq)}')
 
         train_ds.append(SceneDataset(train_seq,
-                                     max_dist,
+                                     coo2meter,
                                      feature_model,
                                      device,
                                      train_transform))
         val_ds.append(SceneDataset(val_seq,
-                                   max_dist,
+                                   coo2meter,
                                    feature_model,
                                    device,
                                    val_transform))
@@ -292,7 +292,6 @@ def main(args, device, collate_fun):
                                     labels.copy(),
                                     sample['xws'],
                                     sample['yws'],
-                                    sample['max_dist'],
                                     sample['cam_ids'],
                                     model,
                                     device,

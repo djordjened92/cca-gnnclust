@@ -28,7 +28,7 @@ class LANDER(nn.Module):
     ):
         super(LANDER, self).__init__()
         nhid_half = int(nhid / 2)
-        classifier_dim = 8
+        classifier_dim = 4
         self.use_cluster_feat = use_cluster_feat
         self.use_focal_loss = use_focal_loss
 
@@ -37,8 +37,8 @@ class LANDER(nn.Module):
         else:
             self.feature_dim = feature_dim
 
-        input_dim = (feature_dim, nhid, nhid, nhid_half)
-        output_dim = (nhid, nhid, nhid_half, nhid_half)
+        input_dim = (feature_dim, nhid, nhid_half, nhid_half)
+        output_dim = (nhid, nhid_half, nhid_half, nhid_half)
         self.conv = nn.ModuleList()
         self.conv.append(GraphConv(self.feature_dim, nhid, dropout, use_GAT, K))
         for i in range(1, num_conv):
@@ -46,14 +46,20 @@ class LANDER(nn.Module):
                 GraphConv(input_dim[i], output_dim[i], dropout, use_GAT, K)
             )
 
-        self.src_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
-        self.dst_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
+        self.src_mlp = nn.Sequential(
+            nn.Linear(output_dim[num_conv - 1], output_dim[num_conv - 1]),
+            nn.Linear(output_dim[num_conv - 1], classifier_dim)
+        )
+        self.dst_mlp = nn.Sequential(
+            nn.Linear(output_dim[num_conv - 1], output_dim[num_conv - 1]),
+            nn.Linear(output_dim[num_conv - 1], classifier_dim)
+        )
 
         self.classifier_conn = nn.Sequential(
-            nn.PReLU(2 * classifier_dim),
-            nn.Linear(2 * classifier_dim, classifier_dim),
-            nn.PReLU(classifier_dim),
-            nn.Linear(classifier_dim, 2),
+            nn.SELU(2 * classifier_dim + 1),
+            nn.Linear(2 * classifier_dim + 1, classifier_dim + 1),
+            nn.SELU((classifier_dim + 1)),
+            nn.Linear((classifier_dim + 1), 2),
         )
 
         if self.use_focal_loss:
@@ -67,12 +73,12 @@ class LANDER(nn.Module):
     def pred_conn(self, edges):
         src_feat = self.src_mlp(edges.src["conv_features"])
         dst_feat = self.dst_mlp(edges.dst["conv_features"])
+        coo_dist = torch.norm(torch.cat([edges.src['xws'] - edges.dst['xws'],
+                                         edges.src['yws'] - edges.dst['yws']],
+                                         dim=-1), dim=-1, keepdim=True)
         feat_cat = torch.cat((src_feat,
-                              edges.src['xws'],
-                              edges.src['yws'],
                               dst_feat,
-                              edges.dst['xws'],
-                              edges.dst['yws']), dim=1)
+                              coo_dist), dim=1)
 
         pred_conn = self.classifier_conn(feat_cat)
         return {"pred_conn": pred_conn}

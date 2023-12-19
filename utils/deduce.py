@@ -79,7 +79,7 @@ def tree_generation(ng):
         keep_eid = nodes.mailbox["meid"].gather(1, ind.view(-1, 1))
         return {"keep_eid": keep_eid[:, 0]}
 
-    node_order = [nids.to(ng.device) for nids in dgl.traversal.topological_nodes_generator(ng)]
+    node_order = [nids.to(ng.device) for nids in dgl.traversal.bfs_nodes_generator(ng, 0)]
     ng.prop_nodes(node_order, message_func, reduce_func)
     eids = ng.ndata["keep_eid"]
     eids = eids[eids > -1]
@@ -121,8 +121,8 @@ def decode(
     g.edata["edge_dist"] = get_edge_dist(g, threshold)
     g.apply_edges(
         lambda edges: {
-            "keep": (edges.src[den_key] < edges.dst[den_key]).long()
-            * (edges.data["edge_dist"] > tau).long()
+            "keep": (edges.src[den_key] <= edges.dst[den_key]).long()
+            * (edges.data["edge_dist"] >= tau).long()
         }
     )
     eids = torch.where(g.edata["keep"] == 0)[0]

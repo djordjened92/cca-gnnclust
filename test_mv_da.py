@@ -1,3 +1,4 @@
+import os
 import argparse
 import yaml
 import pickle
@@ -13,7 +14,7 @@ from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
-def inference(features, labels, xws, yws, max_dist, cam_ids, model, device, args):
+def inference(features, labels, xws, yws, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
@@ -24,7 +25,6 @@ def inference(features, labels, xws, yws, max_dist, cam_ids, model, device, args
         xws=global_xws,
         yws=global_yws,
         cam_ids=cam_ids,
-        max_dist=max_dist,
         k=args.knn_k,
         levels=1,
         faiss_gpu=args.faiss_gpu,
@@ -105,7 +105,6 @@ def inference(features, labels, xws, yws, max_dist, cam_ids, model, device, args
             xws=xws,
             yws=yws,
             cam_ids=cam_ids,
-            max_dist=max_dist,
             k=args.knn_k,
             levels=1,
             faiss_gpu=False,
@@ -138,10 +137,13 @@ def main(args, device):
                     std=config['DATASET_VAL']['STD'])
     ])
 
+    ds_name = os.path.basename(args.data_paths[0]).split('_crops')[0]
+    coo2meter = config['MAX_DIST'][ds_name]
     with open(args.data_paths[0], "rb") as f:
         ds = pickle.load(f)
 
     test_ds = SceneDataset(ds,
+                           coo2meter,
                            feature_model,
                            device,
                            transform)

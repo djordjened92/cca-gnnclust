@@ -87,8 +87,8 @@ def fast_knns2spmat(knns, k, th_sim=-1, fill_value=None):
     return spmat
 
 
-def build_knns(feats, k, xws, yws, max_dist, faiss_gpu):
-    index = knn_faiss(feats, k, xws, yws, max_dist, omp_num_threads=None, using_gpu=faiss_gpu)
+def build_knns(feats, k, xws, yws, faiss_gpu):
+    index = knn_faiss(feats, k, xws, yws, omp_num_threads=None, using_gpu=faiss_gpu)
     knns = index.get_knns()
     return knns
 
@@ -140,7 +140,6 @@ class knn_faiss(knn):
         k,
         xws,
         yws,
-        max_dist,
         omp_num_threads=None,
         verbose=False,
         using_gpu=True
@@ -178,12 +177,12 @@ class knn_faiss(knn):
         # Expand similarities with position similarities
         coordinates = np.concatenate((xws, yws), axis=1)
         nbrs_coo = coordinates[nbrs]
-        coo_coefs = np.linalg.norm(nbrs_coo - coordinates[:, None, :], axis=-1)
+        coo_dist = np.linalg.norm(nbrs_coo - coordinates[:, None, :], axis=-1)
+        coo_sim = np.clip(1 / (5 * coo_dist), 0., 1.)
         sims = (1 + sims) / 2
-        coo_coefs = 1 - coo_coefs / max_dist
-        sims = np.clip((sims + coo_coefs) / 2, 0., 1.)
+        scores = (sims + coo_sim) / 2
 
-        self.knns = list(zip(nbrs, sims))
+        self.knns = list(zip(nbrs, scores))
 
     def __del__(self):
         self.index.reset()

@@ -20,14 +20,13 @@ from utils import (
 
 import dgl
 
-def worker(features, labels, xws, yws, cam_ids, max_dist, k, levels, device, faiss_gpu):
+def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
     dataset = LanderDataset(
         features=features,
         labels=labels,
         xws=xws,
         yws=yws,
         cam_ids=cam_ids,
-        max_dist=max_dist,
         k=k,
         levels=levels,
         faiss_gpu=faiss_gpu
@@ -48,7 +47,6 @@ def prepare_dataset_graphs_mp(sequence,
             scene['xws'],
             scene['yws'],
             scene['cam_ids'],
-            scene['max_dist'],
             k,
             levels,
             device,
@@ -77,12 +75,12 @@ class SceneDataset(Dataset):
     def __init__(
             self,
             sequence,
-            max_dist,
+            coo2meter,
             feature_model,
             device,
             transform=None
     ):
-        self.max_dist = max_dist
+        self.coo2meter = coo2meter
         self.sequence = sequence
         self.transform = transform
         self.feature_model = feature_model
@@ -105,12 +103,12 @@ class SceneDataset(Dataset):
 
         # Extract features
         with torch.no_grad():
-            _, embeds = self.feature_model(img_batch.to(self.device))
+            embeds, _ = self.feature_model(img_batch.to(self.device))
             embeds = embeds.cpu().numpy()
 
         # Embed box world coordinates
-        xws = scene['xws'][:, None]
-        yws = scene['yws'][:, None]
+        xws = scene['xws'][:, None] / self.coo2meter
+        yws = scene['yws'][:, None] / self.coo2meter
 
         node_embeds = embeds
         sample = {
@@ -118,8 +116,7 @@ class SceneDataset(Dataset):
             'node_embeds': node_embeds,
             'xws': xws,
             'yws': yws,
-            'cam_ids': scene['cam_ids'],
-            'max_dist': self.max_dist
+            'cam_ids': scene['cam_ids']
         }
         return sample
     
@@ -134,14 +131,12 @@ class LanderDataset(object):
         xws,
         yws,
         cam_ids,
-        max_dist,
         cluster_features=None,
         k=10,
         levels=1,
         faiss_gpu=False
     ):
         self.k = k
-        self.max_dist = max_dist
         self.gs = []
         self.nbrs = []
         self.sims = []
@@ -168,7 +163,7 @@ class LanderDataset(object):
                 self.levels = lvl
                 break
 
-            knns = build_knns(features, self.k, xws, yws, self.max_dist, faiss_gpu)
+            knns = build_knns(features, self.k, xws, yws, faiss_gpu)
             knns = mark_same_camera_nbrs(knns, cam_ids)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
