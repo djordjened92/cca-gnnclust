@@ -99,7 +99,7 @@ def peak_propogation(treeg):
     def reduce_func(nodes):
         return {"pred_labels": nodes.mailbox["mlb"][:, 0]}
 
-    node_order = [nids.to(treeg.device) for nids in dgl.traversal.topological_nodes_generator(treeg)]
+    node_order = [nids.to(treeg.device) for nids in dgl.traversal.bfs_nodes_generator(treeg, 0)]
     treeg.prop_nodes(node_order, message_func, reduce_func)
     pred_labels = treeg.ndata["pred_labels"].cpu().numpy()
     return peaks, pred_labels
