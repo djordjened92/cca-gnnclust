@@ -147,7 +147,7 @@ class LanderDataset(object):
         # Initialize features and labels
         features = l2norm(features.astype("float32"))
         if features.shape[0] <= self.k:
-            self.k = max(features.shape[0] - 1, 2)
+            self.k = max(features.shape[0], 2)
 
         global_features = features.copy()
         if cluster_features is None:

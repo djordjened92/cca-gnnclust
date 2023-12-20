@@ -28,7 +28,7 @@ class LANDER(nn.Module):
     ):
         super(LANDER, self).__init__()
         nhid_half = int(nhid / 2)
-        classifier_dim = 4
+        classifier_dim = 8
         self.use_cluster_feat = use_cluster_feat
         self.use_focal_loss = use_focal_loss
 
@@ -37,8 +37,8 @@ class LANDER(nn.Module):
         else:
             self.feature_dim = feature_dim
 
-        input_dim = (feature_dim, nhid, nhid_half, nhid_half)
-        output_dim = (nhid, nhid_half, nhid_half, nhid_half)
+        input_dim = (feature_dim, nhid, nhid, nhid_half)
+        output_dim = (nhid, nhid, nhid_half, nhid_half)
         self.conv = nn.ModuleList()
         self.conv.append(GraphConv(self.feature_dim, nhid, dropout, use_GAT, K))
         for i in range(1, num_conv):
@@ -56,10 +56,10 @@ class LANDER(nn.Module):
         )
 
         self.classifier_conn = nn.Sequential(
-            nn.SELU(2 * classifier_dim + 1),
-            nn.Linear(2 * classifier_dim + 1, classifier_dim + 1),
-            nn.SELU((classifier_dim + 1)),
-            nn.Linear((classifier_dim + 1), 2),
+            nn.SELU(3 * classifier_dim),
+            nn.Linear(3 * classifier_dim, classifier_dim),
+            nn.SELU((classifier_dim)),
+            nn.Linear((classifier_dim), 2),
         )
 
         if self.use_focal_loss:
@@ -78,7 +78,7 @@ class LANDER(nn.Module):
                                          dim=-1), dim=-1, keepdim=True)
         feat_cat = torch.cat((src_feat,
                               dst_feat,
-                              coo_dist), dim=1)
+                              coo_dist.repeat_interleave(src_feat.shape[-1], dim=-1)), dim=1)
 
         pred_conn = self.classifier_conn(feat_cat)
         return {"pred_conn": pred_conn}
