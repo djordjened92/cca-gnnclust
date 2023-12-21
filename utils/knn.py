@@ -24,6 +24,7 @@ __all__ = [
     "mark_same_camera_nbrs",
 ]
 
+np.seterr(divide='ignore')
 
 def knns2ordered_nbrs(knns, sort=True):
     if isinstance(knns, list):
@@ -88,7 +89,7 @@ def fast_knns2spmat(knns, k, th_sim=-1, fill_value=None):
 
 
 def build_knns(feats, k, xws, yws, faiss_gpu):
-    index = knn_faiss(feats, k, xws, yws, omp_num_threads=None, using_gpu=faiss_gpu)
+    index = knn_faiss(feats, k, xws, yws, using_gpu=faiss_gpu)
     knns = index.get_knns()
     return knns
 
@@ -140,52 +141,20 @@ class knn_faiss(knn):
         k,
         xws,
         yws,
-        omp_num_threads=None,
-        verbose=False,
         using_gpu=True
     ):
-        # Calculate knn based on appearance embeddings
-        self._res_list = []
-        if omp_num_threads is not None:
-            faiss.omp_set_num_threads(omp_num_threads)
-        self.verbose = verbose
-        with Timer("[faiss] build index", verbose):
-            num_gpu = faiss.get_num_gpus()
-            feats = feats.astype("float32")
-            size, dim = feats.shape
-            cpu_index = faiss.IndexFlatIP(dim)
-
-            index = faiss.IndexProxy()
-            for i in range(num_gpu):
-                res = faiss.StandardGpuResources()
-                self._res_list.append(res)
-                sub_index = (
-                    faiss.index_cpu_to_gpu(res, i, cpu_index)
-                    if using_gpu
-                    else cpu_index
-                )
-                index.addIndex(sub_index)
-
-            index = faiss.IndexIDMap(index)
-            feats_ids = np.arange(0, size)
-            index.add_with_ids(feats, feats_ids)
-            self.index = index
-
-        with Timer("[faiss] query topk {}".format(k), verbose):
-            sims, nbrs = index.search(feats, k=k)
+        feats = feats.astype("float32")
+        size, dim = feats.shape
+        dot_prod = feats @ feats.T
 
         # Expand similarities with position similarities
         coordinates = np.concatenate((xws, yws), axis=1)
-        nbrs_coo = coordinates[nbrs]
-        coo_dist = np.linalg.norm(nbrs_coo - coordinates[:, None, :], axis=-1)
-        coo_sim = np.clip(1 / (5 * coo_dist), 0., 1.)
-        sims = (1 + sims) / 2
-        scores = (sims + coo_sim) / 2
+        coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
+        # coo_sim = np.clip(1 / (3 * coo_dist), 0., 1.)
+        scores = np.clip(dot_prod - coo_dist, -1., 1.)
 
-        self.knns = list(zip(nbrs, scores))
+        # Find nearest neighbours
+        idcs = np.argpartition(scores, -k)[..., -k:]
+        min_scores = np.take_along_axis(scores, idcs, 1)
 
-    def __del__(self):
-        self.index.reset()
-        del self.index
-        for res in self._res_list:
-            del res
+        self.knns = list(zip(idcs, min_scores))

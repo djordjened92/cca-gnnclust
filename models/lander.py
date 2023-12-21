@@ -47,19 +47,19 @@ class LANDER(nn.Module):
             )
 
         self.src_mlp = nn.Sequential(
-            nn.Linear(output_dim[num_conv - 1], output_dim[num_conv - 1]),
-            nn.Linear(output_dim[num_conv - 1], classifier_dim)
+            nn.Linear(output_dim[num_conv - 1], classifier_dim),
+            nn.SELU(classifier_dim)
         )
         self.dst_mlp = nn.Sequential(
-            nn.Linear(output_dim[num_conv - 1], output_dim[num_conv - 1]),
-            nn.Linear(output_dim[num_conv - 1], classifier_dim)
+            nn.Linear(output_dim[num_conv - 1], classifier_dim),
+            nn.SELU(classifier_dim)
         )
 
         self.classifier_conn = nn.Sequential(
-            nn.SELU(3 * classifier_dim),
-            nn.Linear(3 * classifier_dim, classifier_dim),
-            nn.SELU((classifier_dim)),
-            nn.Linear((classifier_dim), 2),
+            nn.SELU(2 * classifier_dim),
+            nn.Linear(2 * classifier_dim, classifier_dim),
+            nn.SELU(classifier_dim),
+            nn.Linear(classifier_dim, 2),
         )
 
         if self.use_focal_loss:
@@ -73,12 +73,11 @@ class LANDER(nn.Module):
     def pred_conn(self, edges):
         src_feat = self.src_mlp(edges.src["conv_features"])
         dst_feat = self.dst_mlp(edges.dst["conv_features"])
-        coo_dist = torch.norm(torch.cat([edges.src['xws'] - edges.dst['xws'],
-                                         edges.src['yws'] - edges.dst['yws']],
-                                         dim=-1), dim=-1, keepdim=True)
+        # coo_dist = torch.norm(torch.cat([edges.src['xws'] - edges.dst['xws'],
+        #                                  edges.src['yws'] - edges.dst['yws']],
+        #                                  dim=-1), dim=-1, keepdim=True)
         feat_cat = torch.cat((src_feat,
-                              dst_feat,
-                              coo_dist.repeat_interleave(src_feat.shape[-1], dim=-1)), dim=1)
+                              dst_feat), dim=1)
 
         pred_conn = self.classifier_conn(feat_cat)
         return {"pred_conn": pred_conn}

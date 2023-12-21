@@ -103,7 +103,7 @@ class SceneDataset(Dataset):
 
         # Extract features
         with torch.no_grad():
-            embeds, _ = self.feature_model(img_batch.to(self.device))
+            _, embeds = self.feature_model(img_batch.to(self.device))
             embeds = embeds.cpu().numpy()
 
         # Embed box world coordinates
