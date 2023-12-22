@@ -46,19 +46,13 @@ class LANDER(nn.Module):
                 GraphConv(input_dim[i], output_dim[i], dropout, use_GAT, K)
             )
 
-        self.src_mlp = nn.Sequential(
-            nn.Linear(output_dim[num_conv - 1], classifier_dim),
-            nn.SELU(classifier_dim)
-        )
-        self.dst_mlp = nn.Sequential(
-            nn.Linear(output_dim[num_conv - 1], classifier_dim),
-            nn.SELU(classifier_dim)
-        )
+        self.src_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
+        self.dst_mlp = nn.Linear(output_dim[num_conv - 1], classifier_dim - 2)
 
         self.classifier_conn = nn.Sequential(
-            nn.SELU(2 * classifier_dim),
+            nn.PReLU(2 * classifier_dim),
             nn.Linear(2 * classifier_dim, classifier_dim),
-            nn.SELU(classifier_dim),
+            nn.PReLU(classifier_dim),
             nn.Linear(classifier_dim, 2),
         )
 
@@ -76,8 +70,14 @@ class LANDER(nn.Module):
         # coo_dist = torch.norm(torch.cat([edges.src['xws'] - edges.dst['xws'],
         #                                  edges.src['yws'] - edges.dst['yws']],
         #                                  dim=-1), dim=-1, keepdim=True)
+        # feat_cat = torch.cat((src_feat,
+        #                       dst_feat), dim=1)
         feat_cat = torch.cat((src_feat,
-                              dst_feat), dim=1)
+                            edges.src['xws'],
+                            edges.src['yws'],
+                            dst_feat,
+                            edges.dst['xws'],
+                            edges.dst['yws']), dim=1)
 
         pred_conn = self.classifier_conn(feat_cat)
         return {"pred_conn": pred_conn}

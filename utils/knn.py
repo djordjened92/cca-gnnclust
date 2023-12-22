@@ -151,7 +151,7 @@ class knn_faiss(knn):
         coordinates = np.concatenate((xws, yws), axis=1)
         coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
         # coo_sim = np.clip(1 / (3 * coo_dist), 0., 1.)
-        scores = np.clip(dot_prod - coo_dist, -1., 1.)
+        scores = np.clip(dot_prod, -1., 1.)
 
         # Find nearest neighbours
         idcs = np.argpartition(scores, -k)[..., -k:]

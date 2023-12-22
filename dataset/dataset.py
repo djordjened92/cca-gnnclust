@@ -107,8 +107,8 @@ class SceneDataset(Dataset):
             embeds = embeds.cpu().numpy()
 
         # Embed box world coordinates
-        xws = scene['xws'][:, None] / self.coo2meter
-        yws = scene['yws'][:, None] / self.coo2meter
+        xws = scene['xws'][:, None]# / self.coo2meter
+        yws = scene['yws'][:, None]# / self.coo2meter
 
         node_embeds = embeds
         sample = {
