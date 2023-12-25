@@ -14,7 +14,7 @@ from dataset import LanderDataset
 from models import LANDER
 from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
-def inference(features, labels, xws, yws, cam_ids, model, device, args):
+def inference(features, labels, xws, yws, coo2meter, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
@@ -24,6 +24,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
         labels=labels,
         xws=global_xws,
         yws=global_yws,
+        coo2meter=coo2meter,
         cam_ids=cam_ids,
         k=args.knn_k,
         levels=1,
@@ -104,6 +105,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
             labels=labels,
             xws=xws,
             yws=yws,
+            coo2meter=coo2meter,
             cam_ids=cam_ids,
             k=args.knn_k,
             levels=1,
@@ -171,7 +173,7 @@ def main(args, device):
 
     for sample in test_ds:
         labels = sample['node_labels']
-        predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+        predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], coo2meter, sample['cam_ids'], model, device, args)
         # print(f'lab: {labels}')
         # print(f'pred: {predictions}')
         # print(f'ari: {metrics.ari(labels, predictions)}',

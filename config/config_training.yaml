@@ -1,4 +1,6 @@
+DATA_ROOT: '/home/djordje/Documents/Projects/instance_association/GNN-CCA'
 DATASET_TRAIN:
+    NAME: [EPFL-Terrace, EPFL-Laboratory]
     IMAUG: True
     RESIZE: [128, 64]
     MEAN: [0.485, 0.456, 0.406]
@@ -6,15 +8,16 @@ DATASET_TRAIN:
     ZERO_PADDING: False
 
 MAX_DIST: # dist/CONV_TO_M to covert to meters
-  PETS2009_S2_L1_5_8: 26.56
-  EPFL-Laboratory: 44.23
-  EPFL-Terrace: 50.83
-  CAMPUS_Garden1: 85.23
-  AIC20-S01: 0.00001
-  AIC20-S02: 0.00001
-  EPFL-Basketball: 153.54
+    PETS2009_S2_L1_5_8: 26.56
+    EPFL-Laboratory: 44.23
+    EPFL-Terrace: 50.83
+    CAMPUS_Garden1: 85.23
+    AIC20-S01: 0.00001
+    AIC20-S02: 0.00001
+    EPFL-Basketball: 153.54
 
 DATASET_VAL:
+    NAME: EPFL-Basketball
     RESIZE: [128, 64]
     MEAN: [0.485, 0.456, 0.406]
     STD: [0.229, 0.224, 0.225]

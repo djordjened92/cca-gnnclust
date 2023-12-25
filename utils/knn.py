@@ -22,9 +22,64 @@ __all__ = [
     "build_knns",
     "knns2ordered_nbrs",
     "mark_same_camera_nbrs",
+    "build_knn_per_camera"
 ]
 
 np.seterr(divide='ignore')
+
+def build_knn_per_camera(features, cam_ids, k=3):
+    num_of_nodes = len(cam_ids)
+    cam_orders = np.argsort(cam_ids)
+
+    vals, counts = np.unique(cam_ids[cam_orders], return_counts=True)
+
+    feat_sorted = features[cam_orders]
+    sims = feat_sorted @ feat_sorted.T
+
+    cnt_cumsum = np.cumsum(np.concatenate(([0], counts)), axis=0)
+    split_edges = np.cumsum(counts)[:-1]
+
+    vert_splits = np.split(sims, split_edges)
+
+    # Initialize empty similarities and neighbours matrix
+    all_sims = np.empty((num_of_nodes, num_of_nodes * k))
+    all_sims.fill(0.)
+    all_idcs = np.empty((num_of_nodes, num_of_nodes * k))
+    all_idcs.fill(-1)
+
+    for i, v in enumerate(vert_splits):
+        hor_split = np.split(v, split_edges, axis=1)
+        part_idcs = []
+        part_sims = []
+        for j, part in enumerate(hor_split):
+            if i != j:
+                # Check if no enough neighbours
+                if part.shape[1] == 1:
+                    idcs = np.zeros_like(part, dtype=int)
+                    max_vals = part
+                else:
+                    k_curr = min(k, part.shape[1] - 1)
+                    idcs = np.argpartition(part, -k_curr)[..., -k_curr:]
+                    max_vals = np.take_along_axis(part, idcs, 1)
+
+                idcs += cnt_cumsum[j]
+                idcs = cam_orders[idcs]
+                part_idcs.append(idcs)
+                part_sims.append(max_vals)
+        
+        if len(part_idcs) > 0:
+            part_idcs = np.concatenate(part_idcs, axis=1)
+            part_sims = np.concatenate(part_sims, axis=1)
+
+            all_idcs[cnt_cumsum[i]:cnt_cumsum[i] + part_idcs.shape[0], :part_idcs.shape[1]] = part_idcs
+            all_sims[cnt_cumsum[i]:cnt_cumsum[i] + part_sims.shape[0], :part_sims.shape[1]] = part_sims
+
+    knns = np.concatenate((all_idcs[:, None, :], all_sims[:, None, :]), axis=1)
+
+    remap_fin = ((cam_orders - np.expand_dims(np.arange(len(cam_orders)), 0).T) == 0).nonzero()[1]
+    final_knns = knns[remap_fin]
+
+    return final_knns
 
 def knns2ordered_nbrs(knns, sort=True):
     if isinstance(knns, list):
@@ -88,8 +143,8 @@ def fast_knns2spmat(knns, k, th_sim=-1, fill_value=None):
     return spmat
 
 
-def build_knns(feats, k, xws, yws, faiss_gpu):
-    index = knn_faiss(feats, k, xws, yws, using_gpu=faiss_gpu)
+def build_knns(feats, k, xws, yws, coo2meter, faiss_gpu):
+    index = knn_faiss(feats, k, xws, yws, coo2meter, using_gpu=faiss_gpu)
     knns = index.get_knns()
     return knns
 
@@ -141,6 +196,7 @@ class knn_faiss(knn):
         k,
         xws,
         yws,
+        coo2meter,
         using_gpu=True
     ):
         feats = feats.astype("float32")
@@ -148,10 +204,11 @@ class knn_faiss(knn):
         dot_prod = feats @ feats.T
 
         # Expand similarities with position similarities
-        coordinates = np.concatenate((xws, yws), axis=1)
+        coordinates = np.concatenate((xws, yws), axis=1) / coo2meter
         coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
-        # coo_sim = np.clip(1 / (3 * coo_dist), 0., 1.)
-        scores = np.clip(dot_prod, -1., 1.)
+        # dist_thrsh = 1.5
+        # scores = np.where(coo_dist <= dist_thrsh, dot_prod, 0.)
+        scores = dot_prod
 
         # Find nearest neighbours
         idcs = np.argpartition(scores, -k)[..., -k:]

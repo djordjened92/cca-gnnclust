@@ -113,37 +113,38 @@ def main(args, device, collate_fun):
         T.ToTensor(),
         T.Normalize(mean=config['DATASET_TRAIN']['MEAN'],
                     std=config['DATASET_TRAIN']['STD']),
-        RandomErasing(probability=0.05, mean=config['DATASET_TRAIN']['MEAN'])
+        RandomErasing(probability=0.3, mean=config['DATASET_TRAIN']['MEAN'])
     ])
 
-    train_ds = []
-    val_ds = []
-    for data_path in args.data_paths:
-        ds_name = os.path.basename(data_path).split('_crops')[0]
-        coo2meter = config['MAX_DIST'][ds_name]
-        with open(data_path, "rb") as f:
-            ds = pickle.load(f)
+    data_root = config['DATA_ROOT']
 
-        start_idx = int(0.1 * len(ds))
-        end_idx = int(0.9 * len(ds))
-        train_seq = ds[start_idx:end_idx]
-        val_seq = np.concatenate((ds[:start_idx], ds[end_idx:]))
-        print(f'Training length: {len(train_seq)}')
-        print(f'Validation length: {len(val_seq)}')
+    # Load training
+    train_ds = []
+    for d in config['DATASET_TRAIN']['NAME']:
+        data_path = os.path.join(data_root, d + '_crops.pkl')
+        coo2meter = config['MAX_DIST'][d]
+        with open(data_path, "rb") as f:
+            train_seq = pickle.load(f)
 
         train_ds.append(SceneDataset(train_seq,
                                      coo2meter,
                                      feature_model,
                                      device,
                                      train_transform))
-        val_ds.append(SceneDataset(val_seq,
-                                   coo2meter,
-                                   feature_model,
-                                   device,
-                                   val_transform))
-
     train_ds = torch.utils.data.ConcatDataset(train_ds)
-    val_ds = torch.utils.data.ConcatDataset(val_ds)
+    print(f'Training length: {len(train_ds)}')
+
+    # Load validation
+    data_path = os.path.join(data_root, config['DATASET_VAL']['NAME'] + '_crops.pkl')
+    coo2meter = config['MAX_DIST'][d]
+    with open(data_path, "rb") as f:
+        val_seq = pickle.load(f)
+    val_ds = SceneDataset(val_seq,
+                          coo2meter,
+                          feature_model,
+                          device,
+                          val_transform)
+    print(f'Validation length: {len(val_ds)}')
 
     # Final validation ds can be created once
     scene_seq = [sample for sample in val_ds]
@@ -292,6 +293,7 @@ def main(args, device, collate_fun):
                                     labels.copy(),
                                     sample['xws'],
                                     sample['yws'],
+                                    coo2meter,
                                     sample['cam_ids'],
                                     model,
                                     device,
@@ -338,8 +340,6 @@ if __name__== '__main__':
     parser = argparse.ArgumentParser()
 
     # Dataset
-    parser.add_argument("--data_paths", type=str, nargs='+', required=True)
-    parser.add_argument("--num_workers", type=int, default=4, help='number of workers for multiprocessing load, 0 for mp to be off')
     parser.add_argument("--levels", type=int, default=1)
     parser.add_argument("--batch_size", type=int, required=True)
     parser.add_argument("--faiss_gpu", action="store_true")
