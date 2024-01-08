@@ -69,15 +69,18 @@ def get_edge_dist(g, threshold):
 
 
 def tree_generation(ng):
-    ng.ndata["keep_eid"] = torch.zeros(ng.num_nodes(), device=ng.device).long() - 1
+    k = 2
+    ng.ndata["keep_eid"] = torch.zeros((ng.num_nodes(), k), device=ng.device).long() - 1
 
     def message_func(edges):
         return {"mval": edges.data["edge_dist"], "meid": edges.data[dgl.EID]}
 
     def reduce_func(nodes):
-        ind = torch.max(nodes.mailbox["mval"], dim=1)[1]
-        keep_eid = nodes.mailbox["meid"].gather(1, ind.view(-1, 1))
-        return {"keep_eid": keep_eid[:, 0]}
+        curr_k = min(nodes.mailbox["mval"].shape[1], k)
+        ind = torch.topk(nodes.mailbox["mval"], k=curr_k, dim=1)[1]
+        keep_eid = torch.full((nodes.batch_size(), k), fill_value=-1, device=ng.device)
+        keep_eid[:, :curr_k] = nodes.mailbox["meid"].gather(1, ind)
+        return {"keep_eid": keep_eid}
 
     node_order = [nids.to(ng.device) for nids in dgl.traversal.topological_nodes_generator(ng, 0)]
     ng.prop_nodes(node_order, message_func, reduce_func)
