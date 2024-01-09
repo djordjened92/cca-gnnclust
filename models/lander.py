@@ -91,11 +91,12 @@ class LANDER(nn.Module):
         logits = nodes.mailbox["pred_conn"].squeeze(dim=-1)
         mask = nodes.mailbox["labels_conn"]
 
-        logits_max, _ = torch.max(logits, dim=1, keepdim=True)
-        logits = logits - logits_max.detach()
         exp_logits = torch.exp(logits)
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
-        mean_log_prob = (mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob = (mask * log_prob).sum(1)
+        divider = mask.sum(1)
+        divider = torch.where(divider > 0, divider, 1.)
+        mean_log_prob = mean_log_prob / divider
         return {"sup_con_loss": -mean_log_prob}
 
     def forward(self, bipartite):
