@@ -53,13 +53,13 @@ class LANDER(nn.Module):
             nn.PReLU(2 * classifier_dim),
             nn.Linear(2 * classifier_dim, classifier_dim),
             nn.PReLU(classifier_dim),
-            nn.Linear(classifier_dim, 2),
+            nn.Linear(classifier_dim, 1)
         )
 
         if self.use_focal_loss:
             self.loss_conn = FocalLoss(2)
         else:
-            self.loss_conn = nn.CrossEntropyLoss()
+            self.loss_conn = nn.BCEWithLogitsLoss()
         self.loss_den = nn.MSELoss()
 
         self.balance = balance
@@ -83,40 +83,51 @@ class LANDER(nn.Module):
         return {"pred_conn": pred_conn}
 
     def pred_den_msg(self, edges):
-        prob = edges.data["prob_conn"]
-        res = edges.data["raw_affine"] * (prob[:, 1] - prob[:, 0])
+        prob = edges.data["prob_conn"][:, 0]
+        res = edges.data["raw_affine"] * (prob - (1. - prob))
         return {"pred_den_msg": res}
+    
+    # def sup_con_loss_msg(self, msgs):
+    #     logits = msgs["pred_conn"]
+    #     mask = msgs["labels"].view(-1, 1)
 
-    def forward(self, bipartites):
-        output_bipartite = copy.deepcopy(bipartites)
+    #     logits_max, _ = torch.max(logits).detach()
+    #     logits = logits - logits_max
+    #     exp_logits = torch.exp(logits)
+    #     log_prob = logits - torch.log(exp_logits.sum(0, keep_dim=True))
+    #     mean_log_prob = 
+    #     return {"sup_con_loss_msg": res}
+
+    def forward(self, bipartite):
         if self.use_cluster_feat:
             neighbor_x = torch.cat(
                 [
-                    output_bipartite.ndata["features"],
-                    output_bipartite.ndata["cluster_features"],
+                    bipartite.ndata["features"],
+                    bipartite.ndata["cluster_features"],
                 ],
                 axis=1,
             )
         else:
-            neighbor_x = output_bipartite.ndata["features"]
+            neighbor_x = bipartite.ndata["features"]
 
         for i in range(len(self.conv)):
-            neighbor_x = self.conv[i](output_bipartite, neighbor_x)
+            neighbor_x = self.conv[i](bipartite, neighbor_x)
 
-        output_bipartite.ndata["conv_features"] = neighbor_x
+        bipartite.ndata["conv_features"] = neighbor_x
 
-        output_bipartite.apply_edges(self.pred_conn)
-        output_bipartite.edata["prob_conn"] = F.softmax(
-            output_bipartite.edata["pred_conn"], dim=1
-        )
-        output_bipartite.update_all(
+        bipartite.apply_edges(self.pred_conn)
+        bipartite.edata["prob_conn"] = 1. / (1. + torch.exp(-bipartite.edata["pred_conn"]))
+
+        rev_bipartite = dgl.reverse(bipartite, copy_edata=True)
+        rev_bipartite.update_all(
             self.pred_den_msg, fn.mean("pred_den_msg", "pred_den")
         )
-        return output_bipartite
+        bipartite = dgl.reverse(rev_bipartite, copy_edata=True)
+        return bipartite
 
     def compute_loss(self, bipartite):
-        pred_den = bipartite.dstdata["pred_den"]
-        loss_den = self.loss_den(pred_den, bipartite.dstdata["density"])
+        pred_den = bipartite.srcdata["pred_den"]
+        loss_den = self.loss_den(pred_den, bipartite.srcdata["density"])
 
         labels_conn = bipartite.edata["labels_conn"]
         mask_conn = bipartite.edata["mask_conn"]
@@ -153,7 +164,7 @@ class LANDER(nn.Module):
         # In subgraph training, it may happen that all edges are masked in a batch
         if mask_conn.sum() > 0:
             loss_conn = self.loss_conn(
-                bipartite.edata["pred_conn"][mask_conn], labels_conn[mask_conn]
+                bipartite.edata["pred_conn"][mask_conn], labels_conn[mask_conn].view(-1, 1).float()
             )
             loss = loss_den + loss_conn
             loss_den_val = loss_den.item()
@@ -164,3 +175,39 @@ class LANDER(nn.Module):
             loss_conn_val = 0
 
         return loss, loss_den_val, loss_conn_val
+    '''
+    def compute_loss_new(self, bipartite):
+        labels_conn = bipartite.edata["labels_conn"]
+        mask_conn = bipartite.edata["mask_conn"]
+
+        # In subgraph training, it may happen that all edges are masked in a batch
+        print(f'\n\n')
+        src, dst = bipartite.edges()
+        src_nodes = torch.unique(src)
+        loss_contrastive = 0.
+        for node_id in src_nodes:
+            idcs = src == node_id
+            logits = bipartite.edata['pred_conn'][idcs]
+            labels = bipartite.edata['labels_conn'][idcs]
+            print(f"edata: {logits}")
+            print(f"labels: {labels}")
+
+            logits_max, _ = torch.max(logits, dim=1, keepdim=True)
+            logits = anchor_dot_contrast - logits_max.detach()
+            exp_logits = torch.exp(logits)
+            
+            print(f'\n')
+        if mask_conn.sum() > 0:
+            loss_conn = self.loss_conn(
+                bipartite.edata["prob_conn"][mask_conn], labels_conn[mask_conn].view(-1, 1).float()
+            )
+            loss = loss_contrastive + loss_conn
+            loss_contrastive_val = loss_contrastive.item()
+            loss_conn_val = loss_conn.item()
+        else:
+            loss = loss_contrastive
+            loss_contrastive_val = loss_contrastive.item()
+            loss_conn_val = 0
+
+        return loss, loss_contrastive_val, loss_conn_val
+    '''

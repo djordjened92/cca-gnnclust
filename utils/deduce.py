@@ -64,7 +64,7 @@ def peaks_to_labels(peaks, dist2peak, tau, inst_num):
 
 def get_edge_dist(g, threshold):
     if threshold == "prob":
-        return g.edata["prob_conn"][:, 1]
+        return g.edata["prob_conn"][:, 0]
     return g.edata["raw_affine"]
 
 
