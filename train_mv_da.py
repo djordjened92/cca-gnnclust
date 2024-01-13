@@ -22,6 +22,10 @@ from utils import build_next_level, decode, stop_iterating, l2norm, metrics
 
 from test_mv_da import inference
 
+random.seed(123)
+np.random.seed(123)
+torch.manual_seed(123)
+
 class RandomErasing(object):
     """Randomly erases an image patch.
 
@@ -130,9 +134,23 @@ def main(args, device, collate_fun):
                                      coo2meter,
                                      feature_model,
                                      device,
-                                     train_transform))
+                                     val_transform))
     train_ds = torch.utils.data.ConcatDataset(train_ds)
     print(f'Training length: {len(train_ds)}')
+
+    scene_seq = [sample for sample in train_ds]
+    gss = prepare_dataset_graphs_mp(sequence=scene_seq,
+                                    k=args.knn_k,
+                                    levels=args.levels,
+                                    faiss_gpu=args.faiss_gpu,
+                                    device=device,
+                                    num_workers=config['DATALOADER']['NUM_WORKERS'])
+    train_gs_ds = GraphDataset(scene_seq, gss)
+    train_gs_dl = torch.utils.data.DataLoader(dataset=train_gs_ds,
+                                              batch_size=args.batch_size,
+                                              shuffle=True,
+                                              collate_fn=collate_fun,
+                                              drop_last=False)
 
     # Load validation
     data_path = os.path.join(data_root, config['DATASET_VAL']['NAME'] + '_crops.pkl')
@@ -209,20 +227,6 @@ def main(args, device, collate_fun):
         all_loss_den = 0
         all_loss_conn = 0
         model.train()
-
-        scene_seq = [sample for sample in train_ds]
-        gss = prepare_dataset_graphs_mp(sequence=scene_seq,
-                                        k=args.knn_k,
-                                        levels=args.levels,
-                                        faiss_gpu=args.faiss_gpu,
-                                        device=device,
-                                        num_workers=config['DATALOADER']['NUM_WORKERS'])
-        train_gs_ds = GraphDataset(scene_seq, gss)
-        train_gs_dl = torch.utils.data.DataLoader(dataset=train_gs_ds,
-                                                  batch_size=args.batch_size,
-                                                  shuffle=True,
-                                                  collate_fn=collate_fun,
-                                                  drop_last=False)
 
         num_of_graphs = 0
         for batch in train_gs_dl:

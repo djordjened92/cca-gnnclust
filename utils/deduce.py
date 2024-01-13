@@ -124,7 +124,7 @@ def decode(
     g.edata["edge_dist"] = get_edge_dist(g, threshold)
     g.apply_edges(
         lambda edges: {
-            "keep": (edges.src[den_key] < edges.dst[den_key]).long()
+            "keep": (edges.src[den_key] > edges.dst[den_key]).long()
             * (edges.data["edge_dist"] >= tau).long()
         }
     )
