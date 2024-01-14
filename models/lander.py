@@ -116,7 +116,7 @@ class LANDER(nn.Module):
         bipartite.ndata["conv_features"] = neighbor_x
 
         bipartite.apply_edges(self.pred_conn)
-        bipartite.edata["prob_conn"] = 1. / (1. + torch.exp(-bipartite.edata["pred_conn"]))
+        bipartite.edata["prob_conn"] = torch.sigmoid(bipartite.edata["pred_conn"])
 
         rev_bipartite = dgl.reverse(bipartite, copy_edata=True)
         rev_bipartite.update_all(

@@ -252,7 +252,7 @@ class LanderDataset(object):
         g.apply_edges(
             lambda edges: {
                 "mask_conn": (
-                    edges.src["density"] <= edges.dst["density"]
+                    edges.src["density"] > edges.dst["density"]
                 ).bool()
             }
         )
