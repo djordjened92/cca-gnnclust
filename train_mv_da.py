@@ -228,25 +228,31 @@ def main(args, device, collate_fun):
         all_loss_conn = 0
         model.train()
 
-        num_of_graphs = 0
         for batch in train_gs_dl:
             loss = 0
             opt.zero_grad()
+            curr_loss_den = 0
+            curr_loss_conn = 0
             for g in batch:
                 processed_g = model(g)
-                curr_loss, loss_den, loss_conn = model.compute_loss(processed_g)
-                all_loss_den += loss_den
-                all_loss_conn += loss_conn
-                loss += curr_loss
-                num_of_graphs += 1
+                loss_supcon, loss_conn = model.compute_loss(processed_g)
+                conn_losses = loss_conn.mean()
+                supcon_losses = loss_supcon.mean()
+                loss = supcon_losses + conn_losses
+
+                curr_loss_den += supcon_losses.item()
+                curr_loss_conn += conn_losses.item()
+
             loss /= args.batch_size
+            all_loss_conn += curr_loss_conn / args.batch_size
+            all_loss_den += curr_loss_den / args.batch_size
             loss.backward()
             opt.step()
         scheduler.step()
 
         # Record
-        avg_loss_den = all_loss_den / num_of_graphs
-        avg_loss_conn = all_loss_conn / num_of_graphs
+        avg_loss_den = all_loss_den / len(train_gs_dl)
+        avg_loss_conn = all_loss_conn / len(train_gs_dl)
         print(
             "Training, epoch: %d, loss_den: %.6f, loss_conn: %.6f"
             % (epoch, avg_loss_den, avg_loss_conn)
@@ -260,25 +266,22 @@ def main(args, device, collate_fun):
         all_loss_den_val = 0
         all_loss_conn_val = 0
 
-        rand_index = []
-        ami = []
-        homogeneity = []
-        completeness = []
-        v_measure = []
-        num_of_graphs = 0
         with torch.no_grad():
             for val_batch in val_gs_dl:
+                curr_loss_den = 0
+                curr_loss_conn = 0
                 for g in val_batch:
                     processed_g = model(g)
-                    _, loss_den_val, loss_conn_val = model.compute_loss(processed_g)
-                    all_loss_den_val += loss_den_val
-                    all_loss_conn_val += loss_conn_val
-                    num_of_graphs += 1
+                    loss_supcon, loss_conn = model.compute_loss(processed_g)
+                    curr_loss_den += loss_supcon.mean().item()
+                    curr_loss_conn += loss_conn.mean().item()
+                all_loss_den_val += curr_loss_den / args.batch_size
+                all_loss_conn_val += curr_loss_conn / args.batch_size
 
         torch.save(model.state_dict(), os.path.join(model_dir, 'model.pth'))
 
-        avg_loss_den_val = all_loss_den_val / num_of_graphs
-        avg_loss_conn_val = all_loss_conn_val / num_of_graphs
+        avg_loss_den_val = all_loss_den_val / len(val_gs_dl)
+        avg_loss_conn_val = all_loss_conn_val / len(val_gs_dl)
         
         # Record
         print(
@@ -290,52 +293,58 @@ def main(args, device, collate_fun):
         tb_writer.add_scalar('Val_Loss/Conn_loss', avg_loss_conn_val, epoch)
 
         # Validation metrics
-        model.eval()
-        for sample in val_ds:
-            labels = sample['node_labels']
-            predictions = inference(sample['node_embeds'],
-                                    labels.copy(),
-                                    sample['xws'],
-                                    sample['yws'],
-                                    coo2meter,
-                                    sample['cam_ids'],
-                                    model,
-                                    device,
-                                    args)
+        rand_index = []
+        ami = []
+        homogeneity = []
+        completeness = []
+        v_measure = []
+        if epoch % 5 == 0:
+            model.eval()
+            for sample in val_ds:
+                labels = sample['node_labels']
+                predictions = inference(sample['node_embeds'],
+                                        labels.copy(),
+                                        sample['xws'],
+                                        sample['yws'],
+                                        coo2meter,
+                                        sample['cam_ids'],
+                                        model,
+                                        device,
+                                        args)
 
-            rand_index.append(metrics.ari(labels, predictions))
-            ami.append(metrics.ami(labels, predictions))
-            homogeneity.append(metrics.homg_score(labels, predictions))
-            completeness.append(metrics.cmplts_score(labels, predictions))
-            v_measure.append(metrics.v_mesure(labels, predictions))
+                rand_index.append(metrics.ari(labels, predictions))
+                ami.append(metrics.ami(labels, predictions))
+                homogeneity.append(metrics.homg_score(labels, predictions))
+                completeness.append(metrics.cmplts_score(labels, predictions))
+                v_measure.append(metrics.v_mesure(labels, predictions))
 
-        m_ridx = np.mean(np.asarray(rand_index))
-        m_ami = np.mean(np.asarray(ami))
-        m_hom = np.mean(np.asarray(homogeneity))
-        m_cmplt = np.mean(np.asarray(completeness))
-        m_vmes = np.mean(np.asarray(v_measure))
+            m_ridx = np.mean(np.asarray(rand_index))
+            m_ami = np.mean(np.asarray(ami))
+            m_hom = np.mean(np.asarray(homogeneity))
+            m_cmplt = np.mean(np.asarray(completeness))
+            m_vmes = np.mean(np.asarray(v_measure))
 
-        # Save ckpt
-        if m_vmes > best_vmes:
-            best_vmes = m_vmes
-            print("\nNew best epoch", epoch)
-            best_model = glob.glob(os.path.join(model_dir, 'model_best-*.pth'))
-            if len(best_model):
-                os.remove(best_model[0])
-            torch.save(model.state_dict(), os.path.join(model_dir, f'model_best-{epoch}.pth'))
+            # Save ckpt
+            if m_vmes > best_vmes:
+                best_vmes = m_vmes
+                print("\nNew best epoch", epoch)
+                best_model = glob.glob(os.path.join(model_dir, 'model_best-*.pth'))
+                if len(best_model):
+                    os.remove(best_model[0])
+                torch.save(model.state_dict(), os.path.join(model_dir, f'model_best-{epoch}.pth'))
 
-        print(f'Rand index mean = {m_ridx}')
-        print(f'Mutual index mean = {m_ami}')
-        print(f'homogeneity mean = {m_hom}')
-        print(f'completeness mean = {m_cmplt}')
-        print(f'v_measure mean = {m_vmes}')
-        print('\n')
+            print(f'Rand index mean = {m_ridx}')
+            print(f'Mutual index mean = {m_ami}')
+            print(f'homogeneity mean = {m_hom}')
+            print(f'completeness mean = {m_cmplt}')
+            print(f'v_measure mean = {m_vmes}')
+            print('\n')
 
-        tb_writer.add_scalar('Val_Metrics/Rand_idx', m_ridx, epoch)
-        tb_writer.add_scalar('Val_Metrics/AMI', m_ami, epoch)
-        tb_writer.add_scalar('Val_Metrics/Homogeneity', m_hom, epoch)
-        tb_writer.add_scalar('Val_Metrics/Completeness', m_cmplt, epoch)
-        tb_writer.add_scalar('Val_Metrics/V_Measure', m_vmes, epoch)
+            tb_writer.add_scalar('Val_Metrics/Rand_idx', m_ridx, epoch)
+            tb_writer.add_scalar('Val_Metrics/AMI', m_ami, epoch)
+            tb_writer.add_scalar('Val_Metrics/Homogeneity', m_hom, epoch)
+            tb_writer.add_scalar('Val_Metrics/Completeness', m_cmplt, epoch)
+            tb_writer.add_scalar('Val_Metrics/V_Measure', m_vmes, epoch)
 
 if __name__== '__main__':
     mp.set_start_method('spawn')

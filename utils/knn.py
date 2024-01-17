@@ -206,9 +206,9 @@ class knn_faiss(knn):
         # Expand similarities with position similarities
         coordinates = np.concatenate((xws, yws), axis=1) / coo2meter
         coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
-        # dist_thrsh = 1.5
-        # scores = np.where(coo_dist <= dist_thrsh, dot_prod, 0.)
-        scores = dot_prod
+        dist_thrsh = 1.
+        scores = np.where(coo_dist <= dist_thrsh, dot_prod, 0.)
+        # scores = dot_prod
 
         # Find nearest neighbours
         idcs = np.argpartition(scores, -k)[..., -k:]

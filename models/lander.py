@@ -59,7 +59,7 @@ class LANDER(nn.Module):
         if self.use_focal_loss:
             self.loss_conn = FocalLoss(2)
         else:
-            self.loss_conn = nn.BCEWithLogitsLoss()
+            self.loss_conn = nn.BCEWithLogitsLoss(reduction='none')
         self.loss_den = nn.MSELoss()
 
         self.balance = balance
@@ -189,10 +189,6 @@ class LANDER(nn.Module):
         )
 
         # In subgraph training, it may happen that all edges are masked in a batch
-        loss_contrastive = bipartite.srcdata['sup_con_loss'].mean()
-            
-        loss = loss_contrastive + loss_conn
-        loss_contrastive_val = loss_contrastive.item()
-        loss_conn_val = loss_conn.item()
+        loss_contrastive = bipartite.srcdata['sup_con_loss']
 
-        return loss, loss_contrastive_val, loss_conn_val
+        return loss_contrastive, loss_conn
