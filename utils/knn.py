@@ -204,7 +204,7 @@ class knn_faiss(knn):
         dot_prod = feats @ feats.T
 
         # Expand similarities with position similarities
-        coordinates = np.concatenate((xws, yws), axis=1) / coo2meter
+        coordinates = np.concatenate((xws, yws), axis=1)
         coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
         dist_thrsh = 1.
         scores = np.where(coo_dist <= dist_thrsh, dot_prod, 0.)
@@ -215,3 +215,64 @@ class knn_faiss(knn):
         min_scores = np.take_along_axis(scores, idcs, 1)
 
         self.knns = list(zip(idcs, min_scores))
+
+def build_knn_per_camera(features, cam_ids, xws, yws, k=3):
+    num_of_nodes = len(cam_ids)
+    cam_orders = np.argsort(cam_ids)
+
+    vals, counts = np.unique(cam_ids[cam_orders], return_counts=True)
+    num_of_cams = len(counts)
+
+    feat_sorted = features[cam_orders]
+    sims = feat_sorted @ feat_sorted.T
+    xws_sorted = xws[cam_orders]
+    yws_sorted = yws[cam_orders]
+    coordinates = np.concatenate((xws_sorted, yws_sorted), axis=1)
+    coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
+    dist_thrsh = 1.
+    sims = np.where(coo_dist <= dist_thrsh, sims, 0.)
+
+    cnt_cumsum = np.cumsum(np.concatenate(([0], counts)), axis=0)
+    split_edges = np.cumsum(counts)[:-1]
+
+    vert_splits = np.split(sims, split_edges)
+
+    # Initialize empty similarities and neighbours matrix
+    all_sims = np.empty((num_of_nodes, num_of_cams * k))
+    all_sims.fill(0.)
+    all_idcs = np.empty((num_of_nodes, num_of_cams * k))
+    all_idcs.fill(-1)
+
+    for i, v in enumerate(vert_splits):
+        hor_split = np.split(v, split_edges, axis=1)
+        part_idcs = []
+        part_sims = []
+        for j, part in enumerate(hor_split):
+            if i != j:
+                # Check if no enough neighbours
+                if part.shape[1] == 1:
+                    idcs = np.zeros_like(part, dtype=int)
+                    max_vals = part
+                else:
+                    k_curr = min(k, part.shape[1] - 1)
+                    idcs = np.argpartition(part, -k_curr)[..., -k_curr:]
+                    max_vals = np.take_along_axis(part, idcs, 1)
+
+                idcs += cnt_cumsum[j]
+                idcs = cam_orders[idcs]
+                part_idcs.append(idcs)
+                part_sims.append(max_vals)
+
+        if len(part_idcs):
+            part_idcs = np.concatenate(part_idcs, axis=1)
+            part_sims = np.concatenate(part_sims, axis=1)
+
+            all_idcs[cnt_cumsum[i]:cnt_cumsum[i] + part_idcs.shape[0], :part_idcs.shape[1]] = part_idcs
+            all_sims[cnt_cumsum[i]:cnt_cumsum[i] + part_sims.shape[0], :part_sims.shape[1]] = part_sims
+
+    knns = np.concatenate((all_idcs[:, None, :], all_sims[:, None, :]), axis=1)
+
+    remap_fin = ((cam_orders - np.expand_dims(np.arange(len(cam_orders)), 0).T) == 0).nonzero()[1]
+    final_knns = knns[remap_fin]
+
+    return final_knns

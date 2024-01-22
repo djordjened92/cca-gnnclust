@@ -171,6 +171,7 @@ class LanderDataset(object):
 
             knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
             knns = mark_same_camera_nbrs(knns, cam_ids)
+            # knns = build_knn_per_camera(features, cam_ids, xws, yws,)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
 
