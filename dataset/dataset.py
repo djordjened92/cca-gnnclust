@@ -152,8 +152,7 @@ class LanderDataset(object):
 
         # Initialize features and labels
         features = l2norm(features.astype("float32"))
-        if features.shape[0] <= self.k:
-            self.k = max(features.shape[0], 2)
+        self.k = min(features.shape[0], k)
 
         global_features = features.copy()
         if cluster_features is None:
@@ -162,16 +161,17 @@ class LanderDataset(object):
         global_edges = ([], [])
         global_peaks = np.array([], dtype=np.int_)
         ids = np.arange(global_num_nodes)
+        cam_ids_oh = np.zeros((cam_ids.shape[0], 4)).astype(np.int32)
+        cam_ids_oh[np.arange(cam_ids.shape[0]), cam_ids] = 1
+        global_cam_ids = cam_ids.copy()
+        peak_cam_ids = cam_ids
 
         # Recursive graph construction
         for lvl in range(self.levels):
-            if features.shape[0] < self.k:
-                self.levels = lvl
-                break
 
-            knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
-            knns = mark_same_camera_nbrs(knns, cam_ids)
-            # knns = build_knn_per_camera(features, cam_ids, xws, yws,)
+            # knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
+            knns = build_knn_per_camera(features, peak_cam_ids, xws, yws)
+            knns = mark_same_camera_nbrs(knns, cam_ids_oh)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
 
@@ -179,9 +179,12 @@ class LanderDataset(object):
             self.sims.append(sims)
             density = density_estimation(sims, nbrs, labels)
 
-            g = self._build_graph(
-                features, cluster_features, labels, xws, yws, cam_ids, density, knns
+            g = LanderDataset.build_graph(
+                features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns, self.k
             )
+
+            if g.num_edges() == 0:
+                break
 
             self.gs.append(g)
 
@@ -206,24 +209,26 @@ class LanderDataset(object):
                 global_peaks,
             )
             ids = ids[peaks]
-            features, labels, cam_ids, cluster_features, xws, yws = build_next_level(
+            features, labels, peak_cam_ids, cluster_features, xws, yws, cam_ids_oh = build_next_level(
                 features,
                 labels,
                 peaks,
-                cam_ids,
+                peak_cam_ids,
                 global_features,
                 global_pred_labels,
                 global_peaks,
+                global_cam_ids,
                 global_xws,
                 global_yws,
             )
 
             # If all peaks have same camera id, break
-            if len(np.unique(cam_ids)) == 1:
+            if len(np.unique(peak_cam_ids)) == 1:
                 break
 
-    def _build_graph(self, features, cluster_features, labels, xws, yws, cam_ids, density, knns):
-        adj = fast_knns2spmat(knns, self.k)# adj sparse matrix (669560, 669560)
+    @staticmethod
+    def build_graph(features, cluster_features, labels, xws, yws, cam_ids, density, knns, k):
+        adj = fast_knns2spmat(knns, k)# adj sparse matrix (669560, 669560)
         adj, adj_row_sum = row_normalize(adj)
         indices, values, shape = sparse_mx_to_indices_values(adj)
         g = dgl.graph((indices[1], indices[0]), num_nodes=len(knns))

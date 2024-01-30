@@ -87,8 +87,12 @@ class LANDER(nn.Module):
         res = edges.data["raw_affine"] * (prob - (1. - prob))
         return {"pred_den_msg": res}
     
-    def sup_con_loss_red(self, nodes):
+    def sup_con_loss_red(self, nodes, temperature=0.07):
         logits = nodes.mailbox["pred_conn"].squeeze(dim=-1)
+        logits = torch.div(logits, temperature)
+        logits_max, _ = torch.max(logits, dim=1, keepdim=True)
+        logits = logits - logits_max.detach()
+        
         mask = nodes.mailbox["labels_conn"]
 
         exp_logits = torch.exp(logits)

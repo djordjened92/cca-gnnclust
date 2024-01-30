@@ -12,31 +12,28 @@ from models import LANDER, load_feature_extractor
 from dataset import SceneDataset
 from dataset import LanderDataset
 from models import LANDER
-from utils import build_next_level, decode, stop_iterating, l2norm, metrics
+from utils import build_next_level, density_estimation, decode, stop_iterating, l2norm, metrics, build_knn_per_camera, mark_same_camera_nbrs
 
 def inference(features, labels, xws, yws, coo2meter, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
+    cam_ids_oh = np.zeros((cam_ids.shape[0], 4)).astype(np.int32)
+    cam_ids_oh[np.arange(cam_ids.shape[0]), cam_ids] = 1
+    global_cam_ids = cam_ids.copy()
+    peak_cam_ids = cam_ids
     global_features = features.copy()
-    dataset = LanderDataset(
-        features=features,
-        labels=labels,
-        xws=global_xws,
-        yws=global_yws,
-        coo2meter=coo2meter,
-        cam_ids=cam_ids,
-        k=args.knn_k,
-        levels=1,
-        faiss_gpu=args.faiss_gpu,
-    )
-    g = dataset.gs[0].to(device)
-    g.ndata["pred_den"] = torch.zeros((g.num_nodes()), device=device)
-    g.edata["prob_conn"] = torch.zeros((g.num_edges(), 2), device=device)
-    ids = np.arange(g.num_nodes())
+    cluster_features = features
+
+    # Initialize features and labels
+    features = l2norm(features.astype("float32"))
+    k = min(features.shape[0], args.knn_k)
+
+    # ids = np.arange(g.num_nodes())
     global_edges = ([], [])
     global_edges_len = len(global_edges[0])
-    global_num_nodes = g.num_nodes()
+    global_num_nodes = features.shape[0]
+    ids = np.arange(global_num_nodes)
     prev_global_pred_labels = []
     num_edges_add_last_level = np.Inf
     _, cam_counts = np.unique(cam_ids, return_counts=True)
@@ -47,8 +44,19 @@ def inference(features, labels, xws, yws, coo2meter, cam_ids, model, device, arg
     # print(f'\nLables: {labels}')
     # Predict connectivity and density
     for level in range(args.levels):
+
+        # knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
+        knns = build_knn_per_camera(features, peak_cam_ids, xws, yws)
+        knns = mark_same_camera_nbrs(knns, cam_ids_oh)
+
+        nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
+        density = density_estimation(sims, nbrs, labels)
+        g = LanderDataset.build_graph(
+            features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns, k
+        )
+
         with torch.no_grad():
-            g = model(g)
+            g = model(g.to(device))
         (
             new_pred_labels,
             peaks,
@@ -88,33 +96,22 @@ def inference(features, labels, xws, yws, coo2meter, cam_ids, model, device, arg
         num_edges_add_last_level = num_edges_add_this_level
 
         # build new dataset
-        features, labels, cam_ids, cluster_features, xws, yws = build_next_level(
+        features, labels, peak_cam_ids, cluster_features, xws, yws, cam_ids_oh = build_next_level(
             features,
             labels,
             peaks,
-            cam_ids,
+            peak_cam_ids,
             global_features,
             global_pred_labels,
             global_peaks,
+            global_cam_ids,
             global_xws,
             global_yws,
         )
-        # After the first level, the number of nodes reduce a lot. Using cpu faiss is faster.
-        dataset = LanderDataset(
-            features=features,
-            labels=labels,
-            xws=xws,
-            yws=yws,
-            coo2meter=coo2meter,
-            cam_ids=cam_ids,
-            k=args.knn_k,
-            levels=1,
-            faiss_gpu=False,
-            cluster_features=cluster_features,
-        )
-        if len(dataset.gs) == 0:
+
+        # If all peaks have same camera id, break
+        if len(np.unique(peak_cam_ids)) == 1:
             break
-        g = dataset.gs[0].to(device)
 
     return global_pred_labels
 
