@@ -238,7 +238,7 @@ def main(args, device, collate_fun):
                 loss_supcon, loss_conn = model.compute_loss(processed_g)
                 conn_losses = loss_conn.mean()
                 supcon_losses = loss_supcon.mean()
-                loss = 0.5*supcon_losses + conn_losses
+                loss = 0.*supcon_losses + conn_losses
 
                 curr_loss_den += supcon_losses.item()
                 curr_loss_conn += conn_losses.item()

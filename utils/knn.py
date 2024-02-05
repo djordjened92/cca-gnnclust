@@ -166,7 +166,7 @@ class knn_faiss(knn):
 
         self.knns = list(zip(idcs, max_scores))
 
-def build_knn_per_camera(features, cam_ids, xws, yws, k=3):
+def build_knn_per_camera(features, cam_ids, xws, yws, k=1):
     num_of_nodes = len(cam_ids)
     cam_orders = np.argsort(cam_ids)
 
@@ -179,6 +179,7 @@ def build_knn_per_camera(features, cam_ids, xws, yws, k=3):
     yws_sorted = yws[cam_orders]
     coordinates = np.concatenate((xws_sorted, yws_sorted), axis=1)
     coo_dist = np.linalg.norm(coordinates[:, None, :] - coordinates, axis=-1)
+    coo_dist = coo_dist / coo_dist.max()
     coo_dist = coo_dist * (1 - sims)
 
     cnt_cumsum = np.cumsum(np.concatenate(([0], counts)), axis=0)
