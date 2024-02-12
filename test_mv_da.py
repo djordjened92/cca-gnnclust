@@ -1,44 +1,39 @@
-import argparse
 import os
+import argparse
+import yaml
 import pickle
-import time
 import multiprocessing as mp
-from functools import partial
-
-import dgl
 
 import numpy as np
 import torch
-import torch.optim as optim
+from torchvision import transforms as T
 from torch.utils.tensorboard import SummaryWriter
-from dataset import LanderDataset, prepare_dataset_graphs_mp
+from models import LANDER, load_feature_extractor
+from dataset import SceneDataset
+from dataset import LanderDataset
 from models import LANDER
-from utils import build_next_level, decode, stop_iterating, l2norm, metrics
+from utils import build_next_level, density_estimation, decode, stop_iterating, l2norm, metrics, build_knn_per_camera, mark_same_camera_nbrs
 
-torch.manual_seed(123)
-
-def inference(features, labels, xws, yws, cam_ids, model, device, args):
+def inference(features, labels, xws, yws, coo2meter, cam_ids, model, device, args):
     # Initialize objects
     global_xws = xws.copy()
     global_yws = yws.copy()
+    cam_ids_oh = np.zeros((cam_ids.shape[0], 4)).astype(np.int32)
+    cam_ids_oh[np.arange(cam_ids.shape[0]), cam_ids] = 1
+    global_cam_ids = cam_ids.copy()
+    peak_cam_ids = cam_ids
     global_features = features.copy()
-    dataset = LanderDataset(
-        features=features,
-        labels=labels,
-        xws=global_xws,
-        yws=global_yws,
-        cam_ids=cam_ids,
-        k=args.knn_k,
-        levels=1,
-        faiss_gpu=args.faiss_gpu,
-    )
-    g = dataset.gs[0].to(device)
-    g.ndata["pred_den"] = torch.zeros((g.num_nodes()), device=device)
-    g.edata["prob_conn"] = torch.zeros((g.num_edges(), 2), device=device)
-    ids = np.arange(g.num_nodes())
+    cluster_features = features
+
+    # Initialize features and labels
+    features = l2norm(features.astype("float32"))
+    k = min(features.shape[0], args.knn_k)
+
+    # ids = np.arange(g.num_nodes())
     global_edges = ([], [])
     global_edges_len = len(global_edges[0])
-    global_num_nodes = g.num_nodes()
+    global_num_nodes = features.shape[0]
+    ids = np.arange(global_num_nodes)
     prev_global_pred_labels = []
     num_edges_add_last_level = np.Inf
     _, cam_counts = np.unique(cam_ids, return_counts=True)
@@ -46,11 +41,22 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
     # Maximum instances per camera is number of clusters
     max_inst_count = np.max(cam_counts)
 
-    print(f'\nLables: {labels}')
+    # print(f'\nLables: {labels}')
     # Predict connectivity and density
     for level in range(args.levels):
+
+        # knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
+        knns = build_knn_per_camera(features, peak_cam_ids, xws, yws)
+        knns = mark_same_camera_nbrs(knns, cam_ids_oh)
+
+        nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
+        density = density_estimation(sims, nbrs, labels)
+        g = LanderDataset.build_graph(
+            features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns, k
+        )
+
         with torch.no_grad():
-            g = model(g)
+            g = model(g.to(device))
         (
             new_pred_labels,
             peaks,
@@ -69,7 +75,7 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
         ids = ids[peaks]
         new_global_edges_len = len(global_edges[0])
         num_edges_add_this_level = new_global_edges_len - global_edges_len
-        print(f'Level {level}, pred labels: {global_pred_labels}')
+        # print(f'Level {level}, pred labels: {global_pred_labels}')
 
         if len(np.unique(global_pred_labels)) <= max_inst_count \
             and len(prev_global_pred_labels) > 0:
@@ -90,50 +96,67 @@ def inference(features, labels, xws, yws, cam_ids, model, device, args):
         num_edges_add_last_level = num_edges_add_this_level
 
         # build new dataset
-        features, labels, cam_ids, cluster_features, xws, yws = build_next_level(
+        features, labels, peak_cam_ids, cluster_features, xws, yws, cam_ids_oh = build_next_level(
             features,
             labels,
             peaks,
-            cam_ids,
+            peak_cam_ids,
             global_features,
             global_pred_labels,
             global_peaks,
+            global_cam_ids,
             global_xws,
             global_yws,
         )
-        # After the first level, the number of nodes reduce a lot. Using cpu faiss is faster.
-        dataset = LanderDataset(
-            features=features,
-            labels=labels,
-            xws=xws,
-            yws=yws,
-            cam_ids=cam_ids,
-            k=args.knn_k,
-            levels=1,
-            faiss_gpu=False,
-            cluster_features=cluster_features,
-        )
-        if len(dataset.gs) == 0:
+
+        # If all peaks have same camera id, break
+        if len(np.unique(peak_cam_ids)) == 1:
             break
-        g = dataset.gs[0].to(device)
 
     return global_pred_labels
 
 def main(args, device):
-    test_ds = prepare_dataset_graphs_mp(args.data_paths, args.knn_k, args.levels, device, args.faiss_gpu, args.num_workers)
+    # Load config
+    config = yaml.safe_load(open('config/config_training.yaml', 'r'))
+
+    #################################
+    # Load feature extraction model #
+    #################################
+    feature_model = load_feature_extractor(config, device)
+
+    #############
+    # Load data #
+    #############
+
+    # Transformations
+    transform = T.Compose([
+        T.Resize(config['DATASET_VAL']['RESIZE']),
+        T.ToTensor(),
+        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
+                    std=config['DATASET_VAL']['STD'])
+    ])
+
+    ds_name = os.path.basename(args.data_paths[0]).split('_crops')[0]
+    coo2meter = config['MAX_DIST'][ds_name]
+    with open(args.data_paths[0], "rb") as f:
+        ds = pickle.load(f)
+
+    test_ds = SceneDataset(ds,
+                           coo2meter,
+                           feature_model,
+                           device,
+                           transform)
 
     # Model Definition
-    feature_dim = test_ds[0]['graphs'][0].ndata["features"].shape[1]
-    model = LANDER(
-        feature_dim=feature_dim,
-        nhid=args.hidden,
-        num_conv=args.num_conv,
-        dropout=args.dropout,
-        use_GAT=args.gat,
-        K=args.gat_k,
-        balance=args.balance,
-        use_cluster_feat=args.use_cluster_feat
-    )
+    node_feature_dim = test_ds[0]['node_embeds'].shape[1]
+    model = LANDER(feature_dim=node_feature_dim,
+                   nhid=args.hidden,
+                   num_conv=args.num_conv,
+                   dropout=args.dropout,
+                   use_GAT=args.gat,
+                   K=args.gat_k,
+                   balance=args.balance,
+                   use_cluster_feat=args.use_cluster_feat)
 
     model.load_state_dict(torch.load(args.model_path))
     model = model.to(device)
@@ -146,8 +169,13 @@ def main(args, device):
     v_measure = []
 
     for sample in test_ds:
-        labels = sample['labels']
-        predictions = inference(sample['features'], labels.copy(), sample['xws'], sample['yws'], sample['cam_ids'], model, device, args)
+        labels = sample['node_labels']
+        predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], coo2meter, sample['cam_ids'], model, device, args)
+        # print(f'lab: {labels}')
+        # print(f'pred: {predictions}')
+        # print(f'ari: {metrics.ari(labels, predictions)}',
+        #       f'ami: {metrics.ami(labels, predictions)}',
+        #       f'v_mes: {metrics.v_mesure(labels, predictions)}\n')
 
         rand_index.append(metrics.ari(labels, predictions))
         ami.append(metrics.ami(labels, predictions))

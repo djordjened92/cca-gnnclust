@@ -1,10 +1,10 @@
-import pickle
-
 import numpy as np
-import multiprocessing as mp
 import torch
+import multiprocessing as mp
+from PIL import Image
+from skimage import io, transform
 from torch.utils.data import Dataset
-from dgl import transforms as T
+
 from utils import (
     build_knns,
     build_next_level,
@@ -16,58 +16,39 @@ from utils import (
     row_normalize,
     sparse_mx_to_indices_values,
     mark_same_camera_nbrs,
+    build_knn_per_camera
 )
 
 import dgl
 
-def worker(features, labels, xws, yws, cam_ids, k, levels, device, faiss_gpu):
+def worker(features, labels, xws, yws, coo2meter, cam_ids, k, levels, device, faiss_gpu):
     dataset = LanderDataset(
         features=features,
         labels=labels,
         xws=xws,
         yws=yws,
+        coo2meter=coo2meter,
         cam_ids=cam_ids,
         k=k,
         levels=levels,
-        faiss_gpu=faiss_gpu,
-        augment=True
+        faiss_gpu=faiss_gpu
     )
     return [g.to(device) for g in dataset.gs]
 
-def prepare_dataset_graphs_mp(data_path, k, levels, device, faiss_gpu, num_workers):
-    with open(data_path, "rb") as f:
-        data = pickle.load(f)
-
-    g_labels = []
-    g_features = []
-    g_xws = []
-    g_yws = []
-    g_cams = []
+def prepare_dataset_graphs_mp(sequence,
+                              k,
+                              levels,
+                              faiss_gpu,
+                              device,
+                              num_workers):
     process_inputs = []
-    for scene in data:
-        # Embed world position into embeddings
-        node_len = scene['node_embeds'].shape[-1]
-        coo_extend = node_len // 2
-        xws = np.repeat(scene['xws'][:, None] / 360., coo_extend, axis=-1)
-        yws = np.repeat(scene['yws'][:, None] / 288., coo_extend, axis=-1)
-        scene['node_embeds'] = np.concatenate([scene['node_embeds'], xws, yws], axis=-1)
-
-        # scene['node_embeds'] = np.concatenate(
-        #     [scene['node_embeds'], scene['xws'][:, None] / 360., scene['yws'][:, None] / 288.],
-        #     axis=-1
-        # )
-
-        scene['node_embeds'] = l2norm(scene['node_embeds'].astype("float32"))
-        g_labels.append(scene['node_labels'])
-        g_features.append(scene['node_embeds'])
-        g_xws.append(scene['xws'])
-        g_yws.append(scene['yws'])
-        g_cams.append(scene['cam_ids'])
+    for scene in sequence:
         process_inputs.append((
             scene['node_embeds'],
             scene['node_labels'],
             scene['xws'],
             scene['yws'],
+            scene['coo2meter'],
             scene['cam_ids'],
             k,
             levels,
@@ -78,7 +59,73 @@ def prepare_dataset_graphs_mp(data_path, k, levels, device, faiss_gpu, num_worke
     with mp.Pool(num_workers) as pool:
         gss = pool.starmap(worker, process_inputs)
 
-    return GraphDataset(gss, g_labels, g_features, g_xws, g_yws, g_cams)
+    return gss
+
+class GraphDataset(Dataset):
+    def __init__(self, scene_seq, gss):
+        self.scene_seq = scene_seq
+        self.gss = gss
+
+    def __len__(self):
+        return len(self.scene_seq)
+    
+    def __getitem__(self, index):
+        scene = self.scene_seq[index]
+        scene['graphs'] = self.gss[index]
+        return scene
+
+class SceneDataset(Dataset):
+    def __init__(
+            self,
+            sequence,
+            coo2meter,
+            feature_model,
+            device,
+            transform=None
+    ):
+        self.coo2meter = coo2meter
+        self.sequence = sequence
+        self.transform = transform
+        self.feature_model = feature_model
+        self.device = device
+    
+    def __getitem__(self, index):
+        scene = self.sequence[index]
+        crop_paths = scene['bboxes_paths']
+        embeds = []
+
+        img_batch = []
+        for path in crop_paths:
+            crop_image = io.imread(path)
+            crop_image = Image.fromarray(crop_image)
+            if self.transform:
+                crop_image = self.transform(crop_image)
+
+            img_batch.append(crop_image)
+        img_batch = torch.stack(img_batch, dim=0)
+
+        # Extract features
+        with torch.no_grad():
+            _, embeds = self.feature_model(img_batch.to(self.device))
+            embeds = embeds.cpu().numpy()
+
+        # Embed box world coordinates
+        xws = scene['xws'][:, None] / self.coo2meter
+        yws = scene['yws'][:, None] / self.coo2meter
+
+        node_embeds = embeds
+        sample = {
+            'node_labels': scene['node_labels'],
+            'node_embeds': node_embeds,
+            'xws': xws,
+            'yws': yws,
+            'cam_ids': scene['cam_ids'],
+            'coo2meter': self.coo2meter
+        }
+        return sample
+    
+    def __len__(self):
+        return len(self.sequence)
 
 class LanderDataset(object):
     def __init__(
@@ -87,15 +134,15 @@ class LanderDataset(object):
         labels,# (669560,)
         xws,
         yws,
+        coo2meter,
         cam_ids,
         cluster_features=None,
         k=10,
         levels=1,
-        faiss_gpu=False,
-        augment=False
+        faiss_gpu=False
     ):
         self.k = k
-        self.augment = augment
+        self.coo2meter = coo2meter
         self.gs = []
         self.nbrs = []
         self.sims = []
@@ -103,14 +150,9 @@ class LanderDataset(object):
         global_xws = xws.copy()
         global_yws = yws.copy()
 
-        # Augment graph transformations
-        self.transforms = T.Compose([T.DropNode(p=0.05),
-                                     T.DropEdge(p=0.05)])
-
         # Initialize features and labels
         features = l2norm(features.astype("float32"))
-        if features.shape[0] <= self.k:
-            self.k = max(features.shape[0] - 1, 2)
+        self.k = min(features.shape[0], k)
 
         global_features = features.copy()
         if cluster_features is None:
@@ -119,16 +161,17 @@ class LanderDataset(object):
         global_edges = ([], [])
         global_peaks = np.array([], dtype=np.int_)
         ids = np.arange(global_num_nodes)
+        cam_ids_oh = np.zeros((cam_ids.shape[0], 4)).astype(np.int32)
+        cam_ids_oh[np.arange(cam_ids.shape[0]), cam_ids] = 1
+        global_cam_ids = cam_ids.copy()
+        peak_cam_ids = cam_ids
 
         # Recursive graph construction
-        # print(features.shape)
         for lvl in range(self.levels):
-            if features.shape[0] < self.k:
-                self.levels = lvl
-                break
 
-            knns = build_knns(features, self.k, faiss_gpu)
-            knns = mark_same_camera_nbrs(knns, cam_ids)
+            # knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
+            knns = build_knn_per_camera(features, peak_cam_ids, xws, yws)
+            knns = mark_same_camera_nbrs(knns, cam_ids_oh)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
 
@@ -136,15 +179,12 @@ class LanderDataset(object):
             self.sims.append(sims)
             density = density_estimation(sims, nbrs, labels)
 
-            g = self._build_graph(
-                features, cluster_features, labels, xws, yws, cam_ids, density, knns
+            g = LanderDataset.build_graph(
+                features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns, self.k
             )
 
-            # Apply graph augmentation during training
-            if self.augment:
-                g = self.transforms(g)
-                if g.num_nodes() == 0:
-                    break
+            if g.num_edges() == 0:
+                break
 
             self.gs.append(g)
 
@@ -169,24 +209,26 @@ class LanderDataset(object):
                 global_peaks,
             )
             ids = ids[peaks]
-            features, labels, cam_ids, cluster_features, xws, yws = build_next_level(
+            features, labels, peak_cam_ids, cluster_features, xws, yws, cam_ids_oh = build_next_level(
                 features,
                 labels,
                 peaks,
-                cam_ids,
+                peak_cam_ids,
                 global_features,
                 global_pred_labels,
                 global_peaks,
+                global_cam_ids,
                 global_xws,
                 global_yws,
             )
 
             # If all peaks have same camera id, break
-            if len(np.unique(cam_ids)) == 1:
+            if len(np.unique(peak_cam_ids)) == 1:
                 break
 
-    def _build_graph(self, features, cluster_features, labels, xws, yws, cam_ids, density, knns):
-        adj = fast_knns2spmat(knns, self.k)# adj sparse matrix (669560, 669560)
+    @staticmethod
+    def build_graph(features, cluster_features, labels, xws, yws, cam_ids, density, knns, k):
+        adj = fast_knns2spmat(knns, k)# adj sparse matrix (669560, 669560)
         adj, adj_row_sum = row_normalize(adj)
         indices, values, shape = sparse_mx_to_indices_values(adj)
         g = dgl.graph((indices[1], indices[0]), num_nodes=len(knns))
@@ -213,35 +255,5 @@ class LanderDataset(object):
                 ).long()
             }
         )
-        g.apply_edges(
-            lambda edges: {
-                "mask_conn": (
-                    edges.src["density"] <= edges.dst["density"]
-                ).bool()
-            }
-        )
 
         return g
-
-class GraphDataset(Dataset):
-    def __init__(self, gs, g_labels, g_features, g_xws, g_yws, g_cams):
-        self.gs = gs
-        self.g_labels = g_labels
-        self.g_features = g_features
-        self.g_xws = g_xws
-        self.g_yws = g_yws
-        self.g_cams = g_cams
-    
-    def __getitem__(self, index):
-        sample = {
-            'graphs': self.gs[index],
-            'labels': self.g_labels[index],
-            'features': self.g_features[index],
-            'xws': self.g_xws[index],
-            'yws': self.g_yws[index],
-            'cam_ids': self.g_cams[index]
-        }
-        return sample
-    
-    def __len__(self):
-        return len(self.gs)

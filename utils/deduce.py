@@ -64,23 +64,30 @@ def peaks_to_labels(peaks, dist2peak, tau, inst_num):
 
 def get_edge_dist(g, threshold):
     if threshold == "prob":
-        return g.edata["prob_conn"][:, 1]
+        return g.edata["prob_conn"][:, 0]
     return g.edata["raw_affine"]
 
 
 def tree_generation(ng):
-    ng.ndata["keep_eid"] = torch.zeros(ng.num_nodes(), device=ng.device).long() - 1
+    k = 1
+    ng.ndata["keep_eid"] = torch.zeros((ng.num_nodes(), k), device=ng.device).long() - 1
 
     def message_func(edges):
         return {"mval": edges.data["edge_dist"], "meid": edges.data[dgl.EID]}
 
     def reduce_func(nodes):
-        ind = torch.max(nodes.mailbox["mval"], dim=1)[1]
-        keep_eid = nodes.mailbox["meid"].gather(1, ind.view(-1, 1))
-        return {"keep_eid": keep_eid[:, 0]}
+        curr_k = min(nodes.mailbox["mval"].shape[1], k)
+        ind = torch.topk(nodes.mailbox["mval"], k=curr_k, dim=1)[1]
+        keep_eid = torch.full((nodes.batch_size(), k), fill_value=-1, device=ng.device)
+        keep_eid[:, :curr_k] = nodes.mailbox["meid"].gather(1, ind)
+        return {"keep_eid": keep_eid}
 
-    node_order = [nids.to(ng.device) for nids in dgl.traversal.topological_nodes_generator(ng)]
-    ng.prop_nodes(node_order, message_func, reduce_func)
+    # node_order = [nids.to(ng.device) for nids in dgl.traversal.topological_nodes_generator(ng, 0)]
+    # ng.prop_nodes(node_order, message_func, reduce_func)
+    rev_ng = dgl.reverse(ng, copy_edata=True)
+    rev_ng.update_all(message_func, reduce_func)
+    ng = dgl.reverse(rev_ng, copy_edata=True)
+
     eids = ng.ndata["keep_eid"]
     eids = eids[eids > -1]
     edges = ng.find_edges(eids)
@@ -90,7 +97,7 @@ def tree_generation(ng):
 
 def peak_propogation(treeg):
     treeg.ndata["pred_labels"] = torch.zeros(treeg.num_nodes(), device=treeg.device).long() - 1
-    peaks = torch.where(treeg.in_degrees() == 0)[0].cpu().numpy()
+    peaks = torch.where(treeg.out_degrees() == 0)[0].cpu().numpy()
     treeg.ndata["pred_labels"][peaks] = torch.arange(peaks.shape[0], device=treeg.device)
 
     def message_func(edges):
@@ -99,8 +106,10 @@ def peak_propogation(treeg):
     def reduce_func(nodes):
         return {"pred_labels": nodes.mailbox["mlb"][:, 0]}
 
-    node_order = [nids.to(treeg.device) for nids in dgl.traversal.topological_nodes_generator(treeg)]
-    treeg.prop_nodes(node_order, message_func, reduce_func)
+    rev_ng = dgl.reverse(treeg, copy_edata=True)
+    node_order = [nids.to(rev_ng.device) for nids in dgl.traversal.topological_nodes_generator(rev_ng, 0)]
+    rev_ng.prop_nodes(node_order, message_func, reduce_func)
+    treeg = dgl.reverse(rev_ng, copy_edata=True)
     pred_labels = treeg.ndata["pred_labels"].cpu().numpy()
     return peaks, pred_labels
 
@@ -122,7 +131,7 @@ def decode(
     g.apply_edges(
         lambda edges: {
             "keep": (edges.src[den_key] < edges.dst[den_key]).long()
-            * (edges.data["edge_dist"] > tau).long()
+            * (edges.data["edge_dist"] >= tau).long()
         }
     )
     eids = torch.where(g.edata["keep"] == 0)[0]
@@ -155,7 +164,7 @@ def decode(
 
 
 def build_next_level(
-    features, labels, peaks, cam_ids, global_features, global_pred_labels, global_peaks, global_xws, global_yws
+    features, labels, peaks, cam_ids, global_features, global_pred_labels, global_peaks, global_cam_ids, global_xws, global_yws
 ):
     global_peak_to_label = global_pred_labels[global_peaks]
     global_label_to_peak = np.zeros_like(global_peak_to_label)
@@ -166,15 +175,17 @@ def build_next_level(
         np.unique(np.sort(global_pred_labels), return_index=True)[1][1:],
     )
     cluster_features = np.zeros((len(peaks), global_features.shape[1]))
-    nxws = np.zeros((len(peaks)))
-    nyws = np.zeros((len(peaks)))
+    cam_ids_oh = np.zeros((len(peaks), 4)).astype(np.int32)
+    nxws = np.zeros((len(peaks), 1))
+    nyws = np.zeros((len(peaks), 1))
     for pi in range(len(peaks)):
         cluster_features[global_label_to_peak[pi], :] = np.mean(
             global_features[cluster_ind[pi], :], axis=0
         )
-        nxws[global_label_to_peak[pi]] = np.mean(global_xws[cluster_ind[pi]], axis=0)
-        nyws[global_label_to_peak[pi]] = np.mean(global_yws[cluster_ind[pi]], axis=0)
+        nxws[global_label_to_peak[pi], 0] = np.mean(global_xws[cluster_ind[pi]], axis=0)
+        nyws[global_label_to_peak[pi], 0] = np.mean(global_yws[cluster_ind[pi]], axis=0)
+        cam_ids_oh[global_label_to_peak[pi], :][np.unique(global_cam_ids[cluster_ind[pi]])] = 1
     features = features[peaks]
     labels = labels[peaks]
     cam_ids = cam_ids[peaks]
-    return features, labels, cam_ids, cluster_features, nxws, nyws
+    return features, labels, cam_ids, cluster_features, nxws, nyws, cam_ids_oh

@@ -13,32 +13,31 @@ python train_subg.py \
 --use_cluster_feat
 
 python train_mv_da.py \
---data_path /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Laboratory_train.pkl /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Terrace_train.pkl \
+--data_path /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Laboratory_crops.pkl /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Terrace_crops.pkl \
 --knn_k 10 \
---levels 1 \
---batch_size 32 \
+--levels 2 \
+--batch_size 16 \
+--hidden 64 \
+--epochs 100 \
+--base_lr 7e-3 \
+--tau 0.25 \
+--num_conv 4 \
+--model_name model_007 \
+--early_stop \
 --faiss_gpu \
---hidden 1024 \
---epochs 500 \
---max_lr 1e-3 \
---base_lr 5e-4 \
---num_conv 2 \
---tau 0.8 \
---weight_decay 2e-5 \
---num_workers 4 \
---use_cluster_feat \
---model_name model_013 \
---early_stop
+--dropout 0.1 \
+--weight_decay 1e-5
+--use_cluster_feat
+--balance
 
 python test_mv_da.py \
---data_path /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Basketball_train.pkl \
---model_path /home/djordje/Documents/Projects/instance_association/cca-gnnclust/checkpoint/model_013/model_best.pth \
+--data_path /home/djordje/Documents/Projects/instance_association/GNN-CCA/EPFL-Basketball_crops.pkl \
+--model_path /home/djordje/Documents/Projects/instance_association/cca-gnnclust/checkpoint/model_022/model_best-8.pth \
 --knn_k 10 \
---levels 1 \
+--levels 2 \
 --faiss_gpu \
---hidden 1024 \
---num_conv 2 \
---tau 0.8 \
---num_workers 4 \
---use_cluster_feat \
---early_stop
+--hidden 64 \
+--num_conv 4 \
+--tau 0.25 \
+--early_stop \
+--faiss_gpu

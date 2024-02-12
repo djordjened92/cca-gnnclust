@@ -18,3 +18,5 @@ RUN conda install python=3.10
 RUN conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
 RUN conda install -c pytorch -c nvidia faiss-gpu=1.7.4 mkl=2021 blas=1.0=mkl
 RUN conda install -c dglteam/label/cu117 dgl
+RUN conda install -c anaconda scikit-image
+RUN conda install -c conda-forge pyyaml tensorboard
