@@ -24,6 +24,7 @@ from test import inference
 random.seed(123)
 np.random.seed(123)
 torch.manual_seed(123)
+torch.cuda.manual_seed_all(123)
 
 def collate(batch):
     graphs = []
