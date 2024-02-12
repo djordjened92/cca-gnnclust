@@ -3,6 +3,7 @@ import os
 import glob
 import math
 import yaml
+import shutil
 import pickle
 import random
 import multiprocessing as mp
@@ -142,7 +143,8 @@ def main(config_path, device, collate_fun):
     model_dir = os.path.join(config['CHECKPOINT_DIR'], config['MODEL_NAME'])
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
-    tb_writer = SummaryWriter(log_dir=model_dir)
+    tb_writer = SummaryWriter(log_dir=model_dir) # init tb writer
+    shutil.copy(config_path, model_dir)
 
     ###############
     # Training Loop
