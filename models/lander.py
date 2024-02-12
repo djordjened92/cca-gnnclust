@@ -1,10 +1,6 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import dgl
 import dgl.function as fn
-import numpy as np
 import torch
-import copy
 import torch.nn as nn
 import torch.nn.functional as F
 

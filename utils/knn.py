@@ -3,17 +3,7 @@
 """
 This file re-uses implementation from https://github.com/yl-1993/learn-to-cluster
 """
-
-import math
-import multiprocessing as mp
-import os
-import faiss
-
 import numpy as np
-from tqdm import tqdm
-from utils import Timer, l2norm
-
-from .faiss_search import faiss_search_knn
 from scipy.sparse import csr_matrix
 
 __all__ = [

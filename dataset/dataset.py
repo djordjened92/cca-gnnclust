@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import multiprocessing as mp
 from PIL import Image
-from skimage import io, transform
+from skimage import io
 from torch.utils.data import Dataset
 
 from utils import (
