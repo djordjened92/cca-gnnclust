@@ -6,12 +6,10 @@ from skimage import io, transform
 from torch.utils.data import Dataset
 
 from utils import (
-    build_knns,
     build_next_level,
     decode,
     density_estimation,
     fast_knns2spmat,
-    knns2ordered_nbrs,
     l2norm,
     row_normalize,
     sparse_mx_to_indices_values,
@@ -21,7 +19,7 @@ from utils import (
 
 import dgl
 
-def worker(features, labels, xws, yws, coo2meter, cam_ids, k, levels, device, faiss_gpu):
+def worker(features, labels, xws, yws, coo2meter, cam_ids, k, levels, device):
     dataset = LanderDataset(
         features=features,
         labels=labels,
@@ -30,15 +28,13 @@ def worker(features, labels, xws, yws, coo2meter, cam_ids, k, levels, device, fa
         coo2meter=coo2meter,
         cam_ids=cam_ids,
         k=k,
-        levels=levels,
-        faiss_gpu=faiss_gpu
+        levels=levels
     )
     return [g.to(device) for g in dataset.gs]
 
 def prepare_dataset_graphs_mp(sequence,
                               k,
                               levels,
-                              faiss_gpu,
                               device,
                               num_workers):
     process_inputs = []
@@ -52,8 +48,7 @@ def prepare_dataset_graphs_mp(sequence,
             scene['cam_ids'],
             k,
             levels,
-            device,
-            faiss_gpu
+            device
         ))
 
     with mp.Pool(num_workers) as pool:
@@ -137,9 +132,8 @@ class LanderDataset(object):
         coo2meter,
         cam_ids,
         cluster_features=None,
-        k=10,
-        levels=1,
-        faiss_gpu=False
+        k=1,
+        levels=1
     ):
         self.k = k
         self.coo2meter = coo2meter
@@ -168,9 +162,7 @@ class LanderDataset(object):
 
         # Recursive graph construction
         for lvl in range(self.levels):
-
-            # knns = build_knns(features, self.k, xws, yws, self.coo2meter, faiss_gpu)
-            knns = build_knn_per_camera(features, peak_cam_ids, xws, yws)
+            knns = build_knn_per_camera(features, peak_cam_ids, xws, yws, self.k)
             knns = mark_same_camera_nbrs(knns, cam_ids_oh)
 
             nbrs, sims = knns[:, 0, :].astype(np.int32), knns[:, 1, :]
@@ -180,7 +172,7 @@ class LanderDataset(object):
             density = density_estimation(sims, nbrs, labels)
 
             g = LanderDataset.build_graph(
-                features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns, self.k
+                features, cluster_features, labels, xws, yws, peak_cam_ids, density, knns
             )
 
             if g.num_edges() == 0:
@@ -227,8 +219,8 @@ class LanderDataset(object):
                 break
 
     @staticmethod
-    def build_graph(features, cluster_features, labels, xws, yws, cam_ids, density, knns, k):
-        adj = fast_knns2spmat(knns, k)# adj sparse matrix (669560, 669560)
+    def build_graph(features, cluster_features, labels, xws, yws, cam_ids, density, knns):
+        adj = fast_knns2spmat(knns)
         adj, adj_row_sum = row_normalize(adj)
         indices, values, shape = sparse_mx_to_indices_values(adj)
         g = dgl.graph((indices[1], indices[0]), num_nodes=len(knns))
