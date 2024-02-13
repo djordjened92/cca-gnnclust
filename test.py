@@ -1,6 +1,7 @@
 import os
 import argparse
 import yaml
+import glob
 import pickle
 import multiprocessing as mp
 
@@ -113,9 +114,9 @@ def inference(features, labels, xws, yws, cam_ids, model, device, config):
 
     return global_pred_labels
 
-def main(args, device):
+def main(model_dir_path, device):
     # Load config
-    config = yaml.safe_load(open('config/config_training.yaml', 'r'))
+    config = yaml.safe_load(open(os.path.join(model_dir_path, 'config_training.yaml'), 'r'))
 
     #################################
     # Load feature extraction model #
@@ -127,36 +128,37 @@ def main(args, device):
     #############
 
     # Transformations
-    transform = T.Compose([
-        T.Resize(config['DATASET_VAL']['RESIZE']),
+    img_transform = T.Compose([
+        T.Resize(config['IMG_TRANSFORM']['RESIZE']),
         T.ToTensor(),
-        T.Normalize(mean=config['DATASET_VAL']['MEAN'],
-                    std=config['DATASET_VAL']['STD'])
+        T.Normalize(mean=config['IMG_TRANSFORM']['MEAN'],
+                    std=config['IMG_TRANSFORM']['STD'])
     ])
 
-    ds_name = os.path.basename(args.data_paths[0]).split('_crops')[0]
-    coo2meter = config['MAX_DIST'][ds_name]
-    with open(args.data_paths[0], "rb") as f:
+    data_root = config['DATA_ROOT']
+    data_path = os.path.join(data_root, config['DATASET_VAL'] + '_crops.pkl')
+    coo2meter = config['MAX_DIST'][config['DATASET_VAL']]
+    with open(data_path, "rb") as f:
         ds = pickle.load(f)
 
     test_ds = SceneDataset(ds,
                            coo2meter,
                            feature_model,
                            device,
-                           transform)
+                           img_transform)
 
     # Model Definition
     node_feature_dim = test_ds[0]['node_embeds'].shape[1]
     model = LANDER(feature_dim=node_feature_dim,
-                   nhid=args.hidden,
-                   num_conv=args.num_conv,
-                   dropout=args.dropout,
-                   use_GAT=args.gat,
-                   K=args.gat_k,
-                   balance=args.balance,
-                   use_cluster_feat=args.use_cluster_feat)
+                   nhid=config['GNN_MODEL']['HIDDEN_DIM'],
+                   num_conv=config['GNN_MODEL']['NUM_CONV'],
+                   dropout=config['GNN_MODEL']['DROPOUT'],
+                   use_GAT=config['GNN_MODEL']['GAT'],
+                   K=config['GNN_MODEL']['GAT_K'],
+                   use_cluster_feat=config['GNN_MODEL']['USE_CLUSTER_FEATURE'])
 
-    model.load_state_dict(torch.load(args.model_path))
+    model_path = glob.glob(os.path.join(model_dir_path, '*_best*.pth'))[0]
+    model.load_state_dict(torch.load(model_path))
     model = model.to(device)
     model.eval()
 
@@ -168,7 +170,14 @@ def main(args, device):
 
     for sample in test_ds:
         labels = sample['node_labels']
-        predictions = inference(sample['node_embeds'], labels.copy(), sample['xws'], sample['yws'], coo2meter, sample['cam_ids'], model, device, args)
+        predictions = inference(sample['node_embeds'],
+                                labels.copy(),
+                                sample['xws'],
+                                sample['yws'],
+                                sample['cam_ids'],
+                                model,
+                                device,
+                                config)
         # print(f'lab: {labels}')
         # print(f'pred: {predictions}')
         # print(f'ari: {metrics.ari(labels, predictions)}',
@@ -199,31 +208,7 @@ if __name__== '__main__':
     ###########
     # ArgParser
     parser = argparse.ArgumentParser()
-
-    # Dataset
-    parser.add_argument("--data_paths", type=str, nargs='+', required=True)
-    parser.add_argument("--model_path", type=str, required=True)
-    parser.add_argument("--num_workers", type=int, default=4, help='number of workers for multiprocessing load, 0 for mp to be off')
-    parser.add_argument("--levels", type=int, default=1)
-    parser.add_argument("--faiss_gpu", action="store_true")
-
-    # KNN
-    parser.add_argument("--knn_k", type=int, default=10)
-
-    # Model
-    parser.add_argument("--hidden", type=int, default=512)
-    parser.add_argument("--num_conv", type=int, default=4)
-    parser.add_argument("--dropout", type=float, default=0.0)
-    parser.add_argument("--gat", action="store_true")
-    parser.add_argument("--gat_k", type=int, default=1)
-    parser.add_argument("--balance", action="store_true")
-    parser.add_argument("--use_cluster_feat", action="store_true")
-
-    # Validation
-    parser.add_argument("--tau", type=float, default=0.5)
-    parser.add_argument("--threshold", type=str, default="prob")
-    parser.add_argument("--early_stop", action="store_true")
-
+    parser.add_argument("--model_dir", type=str, required=True)
     args = parser.parse_args()
 
     ###########################
@@ -233,4 +218,4 @@ if __name__== '__main__':
     else:
         device = torch.device("cpu")
 
-    main(args, device)
+    main(args.model_dir, device)

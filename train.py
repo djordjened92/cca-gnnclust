@@ -86,7 +86,7 @@ def main(config_path, device, collate_fun):
 
     # Load validation
     data_path = os.path.join(data_root, config['DATASET_VAL'] + '_crops.pkl')
-    coo2meter = config['MAX_DIST'][d]
+    coo2meter = config['MAX_DIST'][config['DATASET_VAL']]
     with open(data_path, "rb") as f:
         val_seq = pickle.load(f)
     val_ds = SceneDataset(val_seq,
