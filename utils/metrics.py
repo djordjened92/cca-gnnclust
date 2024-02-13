@@ -1,11 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-This file re-uses implementation from https://github.com/yl-1993/learn-to-cluster
-"""
-
-from __future__ import division
-
 import numpy as np
 from sklearn.metrics import (
     precision_score,

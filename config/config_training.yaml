@@ -1,11 +1,17 @@
+MODEL_NAME: model_S1_002
+BATCH_SIZE: 48
+EPOCHS: 200
+BASE_LR: 0.07
+WEIGHT_DECAY: 0.0001
+CHECKPOINT_DIR: './checkpoint'
+
 DATA_ROOT: '/home/djordje/Documents/Projects/instance_association/GNN-CCA'
-DATASET_TRAIN:
-    NAME: [EPFL-Terrace, EPFL-Laboratory]
-    IMAUG: True
+DATASET_TRAIN: [EPFL-Terrace, EPFL-Laboratory]
+DATASET_VAL: EPFL-Basketball
+IMG_TRANSFORM:
     RESIZE: [128, 64]
     MEAN: [0.485, 0.456, 0.406]
     STD: [0.229, 0.224, 0.225]
-    ZERO_PADDING: False
 
 MAX_DIST: # dist/CONV_TO_M to covert to meters
     PETS2009_S2_L1_5_8: 26.56
@@ -16,13 +22,6 @@ MAX_DIST: # dist/CONV_TO_M to covert to meters
     AIC20-S02: 0.00001
     EPFL-Basketball: 153.54
 
-DATASET_VAL:
-    NAME: EPFL-Basketball
-    RESIZE: [128, 64]
-    MEAN: [0.485, 0.456, 0.406]
-    STD: [0.229, 0.224, 0.225]
-    ZERO_PADDING: False
-
 DATALOADER:
     NUM_WORKERS: 4
     PIN_MEMORY: True
@@ -30,3 +29,17 @@ DATALOADER:
 CNN_MODEL:
     model_weights_path: /home/djordje/Documents/Projects/instance_association/GNN-CCA/trained_models/reid/resnet50_market_cuhk_duke.tar-232
     L2norm: True
+
+GNN_MODEL:
+    K: 1
+    LEVELS: 3
+    HIDDEN_DIM: 48
+    TAU: 0.2
+    THRESHOLD: 'prob'
+    NUM_CONV: 2
+    EARLY_STOP: True
+    USE_CLUSTER_FEATURE: True
+    USE_FOCAL_LOSS: False
+    DROPOUT: 0.1
+    GAT: False
+    GAT_K: 1

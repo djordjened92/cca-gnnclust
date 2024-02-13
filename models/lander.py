@@ -1,10 +1,6 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 import dgl
 import dgl.function as fn
-import numpy as np
 import torch
-import copy
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -21,7 +17,6 @@ class LANDER(nn.Module):
         dropout=0,
         use_GAT=True,
         K=1,
-        balance=False,
         use_cluster_feat=True,
         use_focal_loss=True,
         **kwargs
@@ -62,16 +57,9 @@ class LANDER(nn.Module):
             self.loss_conn = nn.BCEWithLogitsLoss(reduction='none')
         self.loss_den = nn.MSELoss()
 
-        self.balance = balance
-
     def pred_conn(self, edges):
         src_feat = self.src_mlp(edges.src["conv_features"])
         dst_feat = self.dst_mlp(edges.dst["conv_features"])
-        # coo_dist = torch.norm(torch.cat([edges.src['xws'] - edges.dst['xws'],
-        #                                  edges.src['yws'] - edges.dst['yws']],
-        #                                  dim=-1), dim=-1, keepdim=True)
-        # feat_cat = torch.cat((src_feat,
-        #                       dst_feat), dim=1)
         feat_cat = torch.cat((src_feat,
                             edges.src['xws'],
                             edges.src['yws'],
@@ -86,22 +74,6 @@ class LANDER(nn.Module):
         prob = edges.data["prob_conn"][:, 0]
         res = edges.data["raw_affine"] * (prob - (1. - prob))
         return {"pred_den_msg": res}
-    
-    def sup_con_loss_red(self, nodes, temperature=0.07):
-        logits = nodes.mailbox["pred_conn"].squeeze(dim=-1)
-        logits = torch.div(logits, temperature)
-        logits_max, _ = torch.max(logits, dim=1, keepdim=True)
-        logits = logits - logits_max.detach()
-        
-        mask = nodes.mailbox["labels_conn"]
-
-        exp_logits = torch.exp(logits)
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
-        mean_log_prob = (mask * log_prob).sum(1)
-        divider = mask.sum(1)
-        divider = torch.where(divider > 0, divider, 1.)
-        mean_log_prob = mean_log_prob / divider
-        return {"sup_con_loss": -mean_log_prob}
 
     def forward(self, bipartite):
         if self.use_cluster_feat:
@@ -127,64 +99,9 @@ class LANDER(nn.Module):
         rev_bipartite.update_all(
             self.pred_den_msg, fn.mean("pred_den_msg", "pred_den")
         )
-
-        rev_bipartite.update_all(
-            lambda edges: {"pred_conn": edges.data["pred_conn"], "labels_conn": edges.data["labels_conn"]},
-            self.sup_con_loss_red
-        )
         bipartite = dgl.reverse(rev_bipartite, copy_edata=True)
+
         return bipartite
-
-    def compute_loss_orig(self, bipartite):
-        pred_den = bipartite.srcdata["pred_den"]
-        loss_den = self.loss_den(pred_den, bipartite.srcdata["density"])
-
-        labels_conn = bipartite.edata["labels_conn"]
-        mask_conn = bipartite.edata["mask_conn"]
-
-        if self.balance:
-            labels_conn = bipartite.edata["labels_conn"]
-            neg_check = torch.logical_and(
-                bipartite.edata["labels_conn"] == 0, mask_conn
-            )
-            num_neg = torch.sum(neg_check).item()
-            neg_indices = torch.where(neg_check)[0]
-            pos_check = torch.logical_and(
-                bipartite.edata["labels_conn"] == 1, mask_conn
-            )
-            num_pos = torch.sum(pos_check).item()
-            pos_indices = torch.where(pos_check)[0]
-            if num_pos > num_neg:
-                mask_conn[
-                    pos_indices[
-                        np.random.choice(
-                            num_pos, num_pos - num_neg, replace=False
-                        )
-                    ]
-                ] = 0
-            elif num_pos < num_neg:
-                mask_conn[
-                    neg_indices[
-                        np.random.choice(
-                            num_neg, num_neg - num_pos, replace=False
-                        )
-                    ]
-                ] = 0
-
-        # In subgraph training, it may happen that all edges are masked in a batch
-        if mask_conn.sum() > 0:
-            loss_conn = self.loss_conn(
-                bipartite.edata["pred_conn"][mask_conn], labels_conn[mask_conn].view(-1, 1).float()
-            )
-            loss = loss_den + loss_conn
-            loss_den_val = loss_den.item()
-            loss_conn_val = loss_conn.item()
-        else:
-            loss = loss_den
-            loss_den_val = loss_den.item()
-            loss_conn_val = 0
-
-        return loss, loss_den_val, loss_conn_val
 
     def compute_loss(self, bipartite):
         labels_conn = bipartite.edata["labels_conn"]
@@ -192,7 +109,4 @@ class LANDER(nn.Module):
             bipartite.edata["pred_conn"], labels_conn.view(-1, 1).float()
         )
 
-        # In subgraph training, it may happen that all edges are masked in a batch
-        loss_contrastive = bipartite.srcdata['sup_con_loss']
-
-        return loss_contrastive, loss_conn
+        return loss_conn

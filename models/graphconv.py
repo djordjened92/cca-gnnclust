@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 import dgl.function as fn
 import torch
 import torch.nn as nn
