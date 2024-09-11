@@ -13,7 +13,7 @@ encodes it as a new node embedding $h_i'$ in the following way:
 
 $$h_i' = \phi(h_i, \sum_{v_j \in N_{v_i}} w_{ji}\psi(h_j))$$
 
-where $\phi$ and $\psi$ are MLPs, $w_ji$ is a trainable vector. $N_{v_i} = \{v_j, (v_j, v_i) \in E\}$
+where $\phi$ and $\psi$ are MLPs, $w_{ji}$ is a trainable vector. $N_{v_i} = \{v_j, (v_j, v_i) \in E\}$
 is the neighborhood of node $v_i$, defined with the set of incoming edges.
 
 GCN encoder can be applied multiple times on the same graph, so the effect of the number of message passing steps is also explored in this work.
