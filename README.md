@@ -1,6 +1,6 @@
 # Cross Camera Data Association using Supervised Clustering GNN
 ## Introduction
-This project is an attempt to apply [*Hi-LANDER*]('https://arxiv.org/abs/2107.01319') (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching. The full report with all details can be found in the document `report.pdf`. <br>
+This project is an attempt to apply *[Hi-LANDER](https://arxiv.org/abs/2107.01319)* (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching. The full report with all details can be found in the document `report.pdf`. <br>
 The specific task in this project is connecting persons across the different views in different environments:
 <p align="center">
 <img src="assets/persons_envs_epfl.png">
@@ -27,17 +27,23 @@ After the Graph Encoding step, resulting node features $H'$ are used to predict 
 $(\hat{x_i}, \hat{y_i})$, $(\hat{x_j}, \hat{y_j})$.
 The original work considers the concatenation of node features only.
 The output is a sigmoid activation which estimates the probability that two connected nodes have the same label.
-$$\hat{r}_{ij} = P(r_i = r_j) = \sigma(\theta([h_i', \hat{x_i}, \hat{y_i}, h_j', \hat{x_j}, \hat{y_j}]^T))$$
+```math
+\hat{r}_{ij} = P(r_i = r_j) = \sigma(\theta([h_i', \hat{x_i}, \hat{y_i}, h_j', \hat{x_j}, \hat{y_j}]^T))
+```
 
 A node density $d_i$ is the value that depicts the weighted partition of neighbors which have the
 same label as the node $v_i$. Its estimation is defined as:
 
-$$\hat{d_i} = \frac{1}{k}\sum_{j=1}^{k}\hat{e}_{ij}a_{ij}.$$
+```math
+\hat{d_i} = \frac{1}{k}\sum_{j=1}^{k}\hat{e}_{ij}a_{ij}
+```
 
 where $a_{i,j} = \langle h_i, h_j \rangle$ is the similarity of nodes' embeddings, and
 $\hat{e}_{ij}$ is the edge coefficient defined as:
 
-$$\hat{e}_{ij} = P(r_i = r_j) - P(r_i \neq r_j).$$
+```math
+\hat{e}_{ij} = P(r_i = r_j) - P(r_i \neq r_j).
+```
 
 ### Graph Decoding
 After an estimation of the graph attributes (node density and edge coefficient) using the GNN encoder,
@@ -45,12 +51,18 @@ it is possible to find connected components of the graph in the next two steps:
 
 **Edge filtering**: We initialize a new edge set $E' = \emptyset$. The subset of
 outgoing edges for each node $v_i$ are created as
-$$\varepsilon(i) = \{j \mid (v_i, v_j) \in E \wedge \hat{d}_i \leq \hat{d}_j \wedge \hat{r}_{ij} \geq p_{\tau}\}$$
+
+```math
+\varepsilon(i) = \{j \mid (v_i, v_j) \in E \wedge \hat{d}_i \leq \hat{d}_j \wedge \hat{r}_{ij} \geq p_{\tau}\}
+```
+
 where $\hat{r}_{ij} = P(r_i = r_j)$ and $p_{\tau}$ is the edge connection threshold. Each node
 with non-empty $\varepsilon_i$ contributes to the set $E'$ with one edge selected as
-$$
+
+```math
 j = \argmax_{k \in \varepsilon(i)} \hat{e}_{ik}
-$$
+```
+
 The edge $(v_i, v_j)$ is added to the $E'$. With the condition $\hat{d}_i \leq \hat{d}_j$
 authors of *Hi-LANDER* introduced an inductive bias to discourage connection to nodes on the border of
 clusters.
