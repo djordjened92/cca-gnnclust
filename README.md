@@ -7,6 +7,15 @@ The specific task in this project is connecting persons across the different vie
 </p>
 
 ## Method
+### Graph Creation
+The input structure for this method is a directed graph $G = (V,E)$, where
+$V = \{v_i \mid i \in [1, N]\}$ represents the set of nodes denoting all pedestrian
+bounding boxes. Each node is depicted by embedding $h_i$ initialized with
+appropriate, normalized feature $f_i$, forming node embeddings set $H = \{h_i \mid i \in [1, N]\}$.
+For each node of camera $c_i$, we find the **one closest neighbor from each other camera
+view** $c_j, j \neq i$ (green arrows in the cell $(l_1, a)$ in **Table 1** between C1 and C2, the same way for each other cameras pair - black arrows), unlike *Hi-LANDER*
+which applies pure kNN over the whole corpus of nodes. This neighbor selection per camera is related to the setup where the pedestrian can appear mostly once in each view.
+
 ### Graph Encoding
 Using $h_i$ as the input embedding of the node $v_i$, GCN
 encodes it as a new node embedding $h_i'$ in the following way:
@@ -23,7 +32,7 @@ GCN encoder can be applied multiple times on the same graph, so the effect of th
 </p>
 
 ### Linkage Prediction and Node Density
-After the Graph Encoding step, resulting node features $H'$ are used to predict the linkage between nodes. The edge $(v_i, v_j)$ connectivity is predicted by applying MLP classifier $\theta$ The input is a vector created from **concatenated node features** ($h_i', h_j'$) and **nodes' ground plane positions**
+After the Graph Encoding step, resulting node features $H'$ are used to predict the linkage between nodes. The edge $(v_i, v_j)$ connectivity is predicted by applying MLP classifier $\theta$. The input is a vector created from **concatenated node features** ($h_i', h_j'$) and **nodes' ground plane positions**
 $(\hat{x_i}, \hat{y_i})$, $(\hat{x_j}, \hat{y_j})$.
 The original work considers the concatenation of node features only.
 The output is a sigmoid activation which estimates the probability that two connected nodes have the same label.
@@ -78,7 +87,26 @@ clusters.
 They have a maximum density in the neighborhood. The way $G'$ is created implies
 a separation of the graph in the set of connected components $Q = \{q_i \mid i \in [1, Z]\}$.
 Consequently, each connected component has one peak node distinguished by the highest
-density in the connected component (cell $(l_1, c)$ in **Table 1**.
+density in the connected component (cell $(l_1, c)$ in **Table 1**).
+
+### Hierarchical Design
+The whole pipeline explained in previous sections can be repeated
+on the final set of peak nodes as a new input (row $l_2$ in **Table 1**).
+Multi-level approach demands an aggregation of the features for each connected component
+$q^{(l)}_i$ from the level $l$, which is replaced with a single node $v^{(l + 1)}_i$ on
+the level $l + 1$. The node embeddings $h^{(l + 1)}_i$ of the next level is defined as a
+concatenation of the peak node features $\tilde{h}^{l}_{q_{i}}$ and the mean node features
+$\bar{h}^{l}_{q_{i}}$:
+```math
+h^{(l + 1)}_i = [\tilde{h}^{l}_{q_{i}}, \bar{h}^{l}_{q_{i}}].
+```
+
+### Lables back-propagation
+Once the algorithm finishes and we obtained the final set of peak nodes, their labels can be propagated back to the all nodes in the belonging connected components. For the example in the **Table 1** the final parition is given as different node colors on the following figure:
+
+<p align="center">
+<img width=400 src="assets/resulting_clusters.png">
+</p>
 
 ## Requirements
 In the docker directory run:
