@@ -56,11 +56,17 @@ outgoing edges for each node $v_i$ are created as
 \varepsilon(i) = \{j \mid (v_i, v_j) \in E \wedge \hat{d}_i \leq \hat{d}_j \wedge \hat{r}_{ij} \geq p_{\tau}\}
 ```
 
-where $\hat{r}_{ij}=P(r_i=r_j)$ and $p_{\tau}$ is the edge connection threshold. Each node
+where
+
+```math
+\hat{r}_{ij}=P(r_i=r_j)
+```
+
+and $p_{\tau}$ is the edge connection threshold. Each node
 with non-empty $\varepsilon_i$ contributes to the set $E'$ with one edge selected as
 
 ```math
-j=\argmax_{k \in \varepsilon(i)} \hat{e}_{ik}
+j=\underset{k \in \varepsilon(i)}{\operatorname{argmax}}\hat{e}_{ik}
 ```
 
 The edge $(v_i, v_j)$ is added to the $E'$. With the condition $\hat{d}_i \leq \hat{d}_j$
