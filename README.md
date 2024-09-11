@@ -92,7 +92,7 @@ density in the connected component (cell $(l_1, c)$ in **Table 1**).
 ### Hierarchical Design
 The whole pipeline explained in previous sections can be repeated
 on the final set of peak nodes as a new input (row $l_2$ in **Table 1**).
-Multi-level approach demands an aggregation of the features for each connected component from the level $l$, which is replaced with a single node $v^{(l + 1)}_i$ on the level $l + 1$. The node embeddings $h^{(l + 1)}_i$ of the next level is defined as a concatenation of the peak node features $\tilde{h}^{l}_{q_{i}}$ and the mean node features $\bar{h}^{l}_{q_{i}}$:
+Multi-level approach demands an aggregation of the features for each connected component from the level $l$, which is replaced with a single node on the level $l + 1$. The node embeddings of the next level is defined as a concatenation of the peak node features $\tilde{h}^{l}_{q_{i}}$ and the mean node features $\bar{h}^{l}_{q_{i}}$:
 
 ```math
 h^{(l + 1)}_i = [\tilde{h}^{l}_{q_{i}}, \bar{h}^{l}_{q_{i}}].
