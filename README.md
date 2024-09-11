@@ -66,7 +66,7 @@ and $p_{\tau}$ is the edge connection threshold. Each node
 with non-empty $\varepsilon_i$ contributes to the set $E'$ with one edge selected as
 
 ```math
-j=\underset{k \in \varepsilon(i)}{\operatorname{argmax}}\hat{e}_{ik}
+j=argmax(\hat{e}_{ik}), k \in \varepsilon(i)
 ```
 
 The edge $(v_i, v_j)$ is added to the $E'$. With the condition $\hat{d}_i \leq \hat{d}_j$
