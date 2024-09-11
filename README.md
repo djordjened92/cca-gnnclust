@@ -85,3 +85,19 @@ In the docker directory run:
 ```bash
 docker build --rm --no-cache -t sgc-cca:v_1 -f Dockerfile .
 ```
+
+## Citation
+If you use this software in your work, please cite it using the following metadata:
+BibTeX:
+```
+@software{Nedeljkovic_Cross-Camera_Data_Association,
+author = {Nedeljković, Đorđe},
+title = {{Cross-Camera Data Association via GNN for Supervised Graph Clustering}},
+url = {https://github.com/djordjened92/cca-gnnclust}
+}
+```
+
+APA:
+```
+Nedeljković, Đ. Cross-Camera Data Association via GNN for Supervised Graph Clustering [Computer software]. https://github.com/djordjened92/cca-gnnclust
+```
