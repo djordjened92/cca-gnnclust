@@ -1,6 +1,6 @@
 # Cross Camera Data Association using Supervised Clustering GNN
 ## Introduction
-This project is an attempt to apply *[Hi-LANDER](https://arxiv.org/abs/2107.01319)* (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching. The full report with all details can be found in the document `report.pdf`. <br>
+This project is an attempt to apply *[Hi-LANDER](https://arxiv.org/abs/2107.01319)* (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching.<br>
 The specific task in this project is connecting persons across the different views in different environments:
 <p align="center">
 <img src="assets/persons_envs_epfl.png">
