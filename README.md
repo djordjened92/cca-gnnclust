@@ -1,6 +1,6 @@
 # Cross Camera Data Association using Supervised Clustering GNN
 ## Introduction
-This project is an attempt to apply *[Hi-LANDER](https://arxiv.org/abs/2107.01319)* (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching.<br>
+This project is an attempt to apply *[Hi-LANDER](https://arxiv.org/abs/2107.01319)* (one of methods of Graph Neural Network for Supervised Graph Clustering ) to the cross-camera instance matching. The full report can be found [here](https://arxiv.org/abs/2410.00643).<br>
 The specific task in this project is connecting persons across the different views in different environments:
 <p align="center">
 <img src="assets/persons_envs_epfl.png">
@@ -112,17 +112,15 @@ docker build --rm --no-cache -t sgc-cca:v_1 -f Dockerfile .
 ```
 
 ## Citation
-If you use this software in your work, please cite it using the following metadata:<br>
-BibTeX
+If you use this software in your work, please cite it using:<br>
 ```
-@software{Nedeljkovic_Cross-Camera_Data_Association,
-author = {Nedeljković, Đorđe},
-title = {{Cross-Camera Data Association via GNN for Supervised Graph Clustering}},
-url = {https://github.com/djordjened92/cca-gnnclust}
+@misc{nedeljković2024crosscameradataassociationgnn,
+      title={Cross-Camera Data Association via GNN for Supervised Graph Clustering}, 
+      author={Đorđe Nedeljković},
+      year={2024},
+      eprint={2410.00643},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2410.00643}, 
 }
-```
-
-APA
-```
-Nedeljković, Đ. Cross-Camera Data Association via GNN for Supervised Graph Clustering [Computer software]. https://github.com/djordjened92/cca-gnnclust
 ```
